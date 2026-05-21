@@ -37,7 +37,12 @@ function MitreHeatmap() {
 
   const matchingQueries = useMemo(() => {
     if (!selectedTech) return []
-    return queries.filter((q) => q.mitreTechnique === selectedTech.id)
+    return queries.filter(
+      (q) =>
+        q.mitreTechnique === selectedTech.id ||
+        q.mitreTechnique.startsWith(`${selectedTech.id}.`) ||
+        selectedTech.id.startsWith(`${q.mitreTechnique}.`)
+    )
   }, [selectedTech])
 
   const handleTileEnter = (tech, event) => {

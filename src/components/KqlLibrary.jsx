@@ -6,10 +6,15 @@ const CATEGORIES = [
   { id: 'initial-access', label: 'Initial Access' },
   { id: 'execution', label: 'Execution' },
   { id: 'persistence', label: 'Persistence' },
+  { id: 'privilege-escalation', label: 'Privilege Escalation' },
+  { id: 'defense-evasion', label: 'Defense Evasion' },
+  { id: 'credential-access', label: 'Credential Access' },
+  { id: 'discovery', label: 'Discovery' },
   { id: 'lateral-movement', label: 'Lateral Movement' },
+  { id: 'collection', label: 'Collection' },
   { id: 'exfiltration', label: 'Exfiltration' },
   { id: 'c2', label: 'C2' },
-  { id: 'defense-evasion', label: 'Defense Evasion' },
+  { id: 'impact', label: 'Impact' },
 ]
 
 function exportAllKql() {
