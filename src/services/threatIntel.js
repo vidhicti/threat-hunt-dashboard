@@ -1,28 +1,27 @@
+const PROXY = 'https://corsproxy.io/?'
+const today = new Date().toISOString().split('T')[0]
+
 export const FEEDS = {
   threatfox: 'https://threatfox-api.abuse.ch/api/v1/',
-  urlhaus: 'https://urlhaus-api.abuse.ch/v1/',
+  urlhaus: 'https://urlhaus-api.abuse.ch/v1/urls/recent/',
   feodotracker: 'https://feodotracker.abuse.ch/downloads/ipblocklist.json',
   malwarebazaar: 'https://mb-api.abuse.ch/api/v1/',
-  openphish: 'https://openphish.com/feed.txt',
-  botvrij: 'https://www.botvrij.eu/data/ioclist.ip-dst.txt',
-}
-
-function getFeedUrl(key) {
-  if (import.meta.env.DEV) {
-    const proxies = {
-      threatfox: '/proxy/threatfox/',
-      urlhaus: '/proxy/urlhaus/',
-      feodotracker: '/proxy/feodotracker/downloads/ipblocklist.json',
-      malwarebazaar: '/proxy/malwarebazaar/',
-    }
-    return proxies[key] || FEEDS[key]
-  }
-  return FEEDS[key]
+  emergingThreats: 'https://rules.emergingthreats.net/blockrules/compromised-ips.txt',
+  cinsArmy: 'https://cinsscore.com/list/ci-badguys.txt',
+  sslBlacklist: 'https://sslbl.abuse.ch/blacklist/sslipblacklist.json',
+  phishTank: 'https://data.phishtank.com/data/online-valid.json',
 }
 
 const ABUSE_HEADERS = {
   'Content-Type': 'application/json',
   'User-Agent': 'ThreatHuntDashboard/1.0 (Sentinel SOC)',
+}
+
+const IPV4_REGEX =
+  /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/
+
+function isValidIPv4(value) {
+  return IPV4_REGEX.test(String(value).trim())
 }
 
 function normalizeType(iocType) {
@@ -37,7 +36,7 @@ function normalizeType(iocType) {
 }
 
 function formatDate(value) {
-  if (!value) return new Date().toISOString().slice(0, 10)
+  if (!value) return today
   const d = new Date(value)
   if (Number.isNaN(d.getTime())) return String(value).slice(0, 10)
   return d.toISOString().slice(0, 10)
@@ -51,133 +50,293 @@ export function mapTypeToLogSource(type) {
   return 'CommonSecurityLog'
 }
 
-export async function fetchThreatFoxIOCs() {
-  const response = await fetch(getFeedUrl('threatfox'), {
-    method: 'POST',
-    headers: ABUSE_HEADERS,
-    body: JSON.stringify({ query: 'get_iocs', days: 3 }),
-  })
-  if (!response.ok) throw new Error(`ThreatFox HTTP ${response.status}`)
-  const json = await response.json()
-  if (json.query_status !== 'ok' || !Array.isArray(json.data)) return []
+function feedResult(items, success) {
+  return { items, success }
+}
 
-  return json.data.map((row) => {
-    const type = normalizeType(row.ioc_type)
-    return {
-      indicator: row.ioc || row.ioc_value || '',
-      type,
-      ttp: row.malware || row.threat_type || 'Unknown',
-      ttpId: '',
-      source: 'ThreatFox',
-      logSource: mapTypeToLogSource(type),
-      confidence: 'High',
-      status: 'active',
-      dateAdded: formatDate(row.first_seen_utc || row.last_seen_utc),
-      malwareFamily: row.malware || '',
-      threatType: row.threat_type || '',
-    }
-  }).filter((ioc) => ioc.indicator)
+export async function fetchThreatFoxIOCs() {
+  try {
+    const response = await fetch(FEEDS.threatfox, {
+      method: 'POST',
+      headers: ABUSE_HEADERS,
+      body: JSON.stringify({ query: 'get_iocs', days: 7 }),
+    })
+    if (!response.ok) return feedResult([], false)
+    const json = await response.json()
+    const rows = (json.data || []).slice(0, 200)
+    if (json.query_status && json.query_status !== 'ok') return feedResult([], false)
+
+    const items = rows
+      .map((row) => {
+        const type = normalizeType(row.ioc_type)
+        return {
+          indicator: row.ioc || row.ioc_value || '',
+          type,
+          ttp: row.malware || row.threat_type || 'Unknown',
+          ttpId: '',
+          source: 'ThreatFox',
+          logSource: mapTypeToLogSource(type),
+          confidence: 'High',
+          status: 'active',
+          dateAdded: formatDate(row.first_seen_utc || row.last_seen_utc),
+          malwareFamily: row.malware || '',
+          threatType: row.threat_type || '',
+        }
+      })
+      .filter((ioc) => ioc.indicator)
+    return feedResult(items, true)
+  } catch {
+    return feedResult([], false)
+  }
 }
 
 export async function fetchURLhausIOCs() {
-  const response = await fetch(getFeedUrl('urlhaus'), {
-    method: 'POST',
-    headers: ABUSE_HEADERS,
-    body: JSON.stringify({ query: 'get_urls', limit: 50 }),
-  })
-  if (!response.ok) throw new Error(`URLhaus HTTP ${response.status}`)
-  const json = await response.json()
-  if (json.query_status !== 'ok' || !Array.isArray(json.urls)) return []
+  try {
+    const response = await fetch(FEEDS.urlhaus, {
+      method: 'POST',
+      headers: ABUSE_HEADERS,
+      body: JSON.stringify({ query: 'get_urls', limit: 100 }),
+    })
+    if (!response.ok) return feedResult([], false)
+    const json = await response.json()
+    const rows = (json.urls || []).slice(0, 100)
+    if (json.query_status && json.query_status !== 'ok') return feedResult([], false)
 
-  return json.urls.map((row) => ({
-    indicator: row.url || '',
-    type: 'URL',
-    ttp: 'T1566.002',
-    ttpId: 'T1566.002',
-    source: 'URLhaus',
-    logSource: 'CommonSecurityLog',
-    confidence: 'High',
-    status: row.url_status === 'online' ? 'active' : 'watchlist',
-    dateAdded: formatDate(row.date_added),
-    malwareFamily: Array.isArray(row.tags) ? row.tags.join(', ') : '',
-    threatType: row.threat || '',
-  })).filter((ioc) => ioc.indicator)
+    const items = rows
+      .map((row) => ({
+        indicator: row.url || '',
+        type: 'URL',
+        ttp: 'T1566.002',
+        ttpId: 'T1566.002',
+        source: 'URLhaus',
+        logSource: 'ASimDnsActivityLogs',
+        confidence: 'High',
+        status: row.url_status === 'online' ? 'active' : 'watchlist',
+        dateAdded: formatDate(row.date_added),
+        malwareFamily: Array.isArray(row.tags) ? row.tags.join(', ') : '',
+        threatType: row.threat || '',
+      }))
+      .filter((ioc) => ioc.indicator)
+    return feedResult(items, true)
+  } catch {
+    return feedResult([], false)
+  }
 }
 
 export async function fetchFeodoTrackerIOCs() {
-  const response = await fetch(getFeedUrl('feodotracker'), {
-    headers: { 'User-Agent': ABUSE_HEADERS['User-Agent'] },
-  })
-  if (!response.ok) throw new Error(`FeodoTracker HTTP ${response.status}`)
-  const json = await response.json()
-  const rows = Array.isArray(json) ? json : json.data || []
+  try {
+    const response = await fetch(FEEDS.feodotracker, {
+      headers: { 'User-Agent': ABUSE_HEADERS['User-Agent'] },
+    })
+    if (!response.ok) return feedResult([], false)
+    const json = await response.json()
+    const rows = (Array.isArray(json) ? json : json.data || []).slice(0, 100)
 
-  return rows.map((row) => ({
-    indicator: row.ip_address || row.ip || '',
-    type: 'IP',
-    ttp: 'T1071 C2',
-    ttpId: 'T1071',
-    source: 'FeodoTracker',
-    logSource: 'CommonSecurityLog',
-    confidence: 'High',
-    status: row.status === 'offline' ? 'watchlist' : 'active',
-    dateAdded: formatDate(row.last_online),
-    malwareFamily: row.malware || row.botname || '',
-    threatType: 'botnet_cc',
-  })).filter((ioc) => ioc.indicator)
+    const items = rows
+      .map((row) => ({
+        indicator: row.ip_address || row.ip || '',
+        type: 'IP',
+        ttp: 'T1071 C2',
+        ttpId: 'T1071',
+        source: 'FeodoTracker',
+        logSource: 'CommonSecurityLog',
+        confidence: 'High',
+        status: row.status === 'offline' ? 'watchlist' : 'active',
+        dateAdded: formatDate(row.last_online),
+        malwareFamily: row.malware || row.botname || '',
+        threatType: 'botnet_cc',
+      }))
+      .filter((ioc) => ioc.indicator)
+    return feedResult(items, true)
+  } catch {
+    return feedResult([], false)
+  }
 }
 
 export async function fetchMalwareBazaarIOCs() {
-  const response = await fetch(getFeedUrl('malwarebazaar'), {
-    method: 'POST',
-    headers: ABUSE_HEADERS,
-    body: JSON.stringify({ query: 'get_recent', selector: '100' }),
-  })
-  if (!response.ok) throw new Error(`MalwareBazaar HTTP ${response.status}`)
-  const json = await response.json()
-  if (json.query_status !== 'ok' || !Array.isArray(json.data)) return []
+  try {
+    const response = await fetch(FEEDS.malwarebazaar, {
+      method: 'POST',
+      headers: ABUSE_HEADERS,
+      body: JSON.stringify({ query: 'get_recent', selector: '100' }),
+    })
+    if (!response.ok) return feedResult([], false)
+    const json = await response.json()
+    const rows = (json.data || []).slice(0, 100)
+    if (json.query_status && json.query_status !== 'ok') return feedResult([], false)
 
-  return json.data.map((row) => ({
-    indicator: row.sha256_hash || row.sha256 || '',
-    type: 'SHA256',
-    ttp: 'T1204',
-    ttpId: 'T1204.002',
-    source: 'MalwareBazaar',
-    logSource: 'MDE',
-    confidence: 'High',
-    status: 'active',
-    dateAdded: formatDate(row.first_seen || row.first_seen_utc),
-    malwareFamily: Array.isArray(row.tags) ? row.tags.join(', ') : row.signature || '',
-    threatType: row.file_type || '',
-  })).filter((ioc) => ioc.indicator)
+    const items = rows
+      .map((row) => ({
+        indicator: row.sha256_hash || row.sha256 || '',
+        type: 'SHA256',
+        ttp: 'T1204',
+        ttpId: 'T1204.002',
+        source: 'MalwareBazaar',
+        logSource: 'MDE',
+        confidence: 'High',
+        status: 'active',
+        dateAdded: formatDate(row.first_seen || row.first_seen_utc),
+        malwareFamily: Array.isArray(row.tags) ? row.tags.join(', ') : row.signature || '',
+        threatType: row.file_type || '',
+      }))
+      .filter((ioc) => ioc.indicator)
+    return feedResult(items, true)
+  } catch {
+    return feedResult([], false)
+  }
 }
 
-export async function fetchAllIOCs() {
-  const results = await Promise.allSettled([
-    fetchThreatFoxIOCs(),
-    fetchURLhausIOCs(),
-    fetchFeodoTrackerIOCs(),
-    fetchMalwareBazaarIOCs(),
-  ])
+export async function fetchEmergingThreatsIOCs() {
+  try {
+    const response = await fetch(`${PROXY}${FEEDS.emergingThreats}`)
+    if (!response.ok) return feedResult([], false)
+    const text = await response.text()
+    const lines = text
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith('#') && isValidIPv4(line))
+      .slice(0, 100)
 
-  const feedNames = ['threatfox', 'urlhaus', 'feodotracker', 'malwarebazaar']
-  const activeFeeds = {}
+    const items = lines.map((ip) => ({
+      indicator: ip,
+      type: 'IP',
+      ttp: 'T1071 C2',
+      ttpId: 'T1071',
+      source: 'EmergingThreats',
+      logSource: 'CommonSecurityLog',
+      confidence: 'High',
+      status: 'active',
+      dateAdded: today,
+      malwareFamily: '',
+      threatType: '',
+    }))
+    return feedResult(items, true)
+  } catch {
+    return feedResult([], false)
+  }
+}
+
+export async function fetchCINSArmyIOCs() {
+  try {
+    const response = await fetch(`${PROXY}${FEEDS.cinsArmy}`)
+    if (!response.ok) return feedResult([], false)
+    const text = await response.text()
+    const lines = text
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line && isValidIPv4(line))
+      .slice(0, 100)
+
+    const items = lines.map((ip) => ({
+      indicator: ip,
+      type: 'IP',
+      ttp: 'T1190',
+      ttpId: 'T1190',
+      source: 'CINS Army',
+      logSource: 'CommonSecurityLog',
+      confidence: 'Medium',
+      status: 'active',
+      dateAdded: today,
+      malwareFamily: '',
+      threatType: '',
+    }))
+    return feedResult(items, true)
+  } catch {
+    return feedResult([], false)
+  }
+}
+
+export async function fetchSSLBlacklistIOCs() {
+  try {
+    const response = await fetch(FEEDS.sslBlacklist, {
+      headers: { 'User-Agent': ABUSE_HEADERS['User-Agent'] },
+    })
+    if (!response.ok) return feedResult([], false)
+    const json = await response.json()
+    const rows = (json.blacklist || []).slice(0, 100)
+
+    const items = rows
+      .map((item) => ({
+        indicator: item.Destination || '',
+        type: 'IP',
+        ttp: item.Listingreason || 'SSL Blacklist',
+        ttpId: '',
+        source: 'SSL Blacklist',
+        logSource: 'CommonSecurityLog',
+        confidence: 'High',
+        status: 'active',
+        dateAdded: formatDate(item.Listingdate),
+        malwareFamily: item.Port ? `Port ${item.Port}` : '',
+        threatType: item.Listingreason || '',
+      }))
+      .filter((ioc) => ioc.indicator)
+    return feedResult(items, true)
+  } catch {
+    return feedResult([], false)
+  }
+}
+
+export async function fetchPhishTankIOCs() {
+  try {
+    const response = await fetch(`${PROXY}${FEEDS.phishTank}`)
+    if (!response.ok) return feedResult([], false)
+    const json = await response.json()
+    const rows = Array.isArray(json) ? json.slice(0, 100) : []
+
+    const items = rows
+      .map((item) => ({
+        indicator: item.url || '',
+        type: 'URL',
+        ttp: 'T1566.002 Phishing',
+        ttpId: 'T1566.002',
+        source: 'PhishTank',
+        logSource: 'ASimDnsActivityLogs',
+        confidence: 'High',
+        status: 'active',
+        dateAdded: formatDate(item.submission_time),
+        malwareFamily: '',
+        threatType: 'phishing',
+      }))
+      .filter((ioc) => ioc.indicator)
+    return feedResult(items, true)
+  } catch {
+    return feedResult([], false)
+  }
+}
+
+const FEED_FETCHERS = [
+  { key: 'threatfox', fetch: fetchThreatFoxIOCs },
+  { key: 'urlhaus', fetch: fetchURLhausIOCs },
+  { key: 'feodotracker', fetch: fetchFeodoTrackerIOCs },
+  { key: 'malwarebazaar', fetch: fetchMalwareBazaarIOCs },
+  { key: 'emergingThreats', fetch: fetchEmergingThreatsIOCs },
+  { key: 'cinsArmy', fetch: fetchCINSArmyIOCs },
+  { key: 'sslBlacklist', fetch: fetchSSLBlacklistIOCs },
+  { key: 'phishTank', fetch: fetchPhishTankIOCs },
+]
+
+export async function fetchAllIOCs() {
+  const feedStatus = {}
   const merged = []
 
+  const results = await Promise.allSettled(
+    FEED_FETCHERS.map(({ fetch }) => fetch())
+  )
+
   results.forEach((result, index) => {
-    const name = feedNames[index]
+    const { key } = FEED_FETCHERS[index]
     if (result.status === 'fulfilled') {
-      activeFeeds[name] = true
-      merged.push(...result.value)
+      feedStatus[key] = result.value.success
+      merged.push(...result.value.items)
     } else {
-      activeFeeds[name] = false
+      feedStatus[key] = false
     }
   })
 
   const seen = new Set()
   const deduped = merged.filter((ioc) => {
     const key = String(ioc.indicator).toLowerCase()
-    if (seen.has(key)) return false
+    if (!key || seen.has(key)) return false
     seen.add(key)
     return true
   })
@@ -188,7 +347,11 @@ export async function fetchAllIOCs() {
     return db - da
   })
 
-  return { iocs: deduped, activeFeeds }
+  return {
+    iocs: deduped,
+    feedStatus,
+    totalCount: deduped.length,
+  }
 }
 
 function escapeKqlString(value) {

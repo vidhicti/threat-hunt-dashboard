@@ -1434,3 +1434,121 @@ body {
 .bulk-result-body {
   padding: 12px;
 }
+
+/* IOC loading & pagination */
+.ioc-load-progress-wrap {
+  margin-bottom: 16px;
+}
+
+.ioc-loading-msg {
+  margin: 0 0 8px;
+  font-size: 0.9rem;
+  color: var(--accent);
+}
+
+.ioc-progress-track {
+  height: 6px;
+  background: #21262d;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.ioc-progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--green));
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.ioc-skeleton-wrap {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 16px;
+}
+
+.ioc-skeleton-row {
+  display: flex;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.ioc-skeleton-cell {
+  height: 14px;
+  border-radius: 4px;
+  background: linear-gradient(
+    90deg,
+    #21262d 25%,
+    #30363d 50%,
+    #21262d 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.2s ease-in-out infinite;
+}
+
+.ioc-skeleton-cell.short {
+  width: 24px;
+  flex-shrink: 0;
+}
+
+.ioc-skeleton-cell.medium {
+  width: 80px;
+}
+
+.ioc-skeleton-cell.long {
+  flex: 1;
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.ioc-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 12px;
+  padding: 12px;
+}
+
+.pagination-btn {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.pagination-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.pagination-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.page-indicator {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.ioc-stats-row-6 {
+  grid-template-columns: repeat(6, 1fr);
+}
+
+@media (max-width: 900px) {
+  .ioc-stats-row-6 {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}

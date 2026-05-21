@@ -2,6 +2,9 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import localIocs from '../data/iocs.json'
 import { fetchAllIOCs, generateWatchlistKQL } from '../services/threatIntel'
 
+const PAGE_SIZE = 50
+const FEED_COUNT = 8
+
 const STATUS_DOT = {
   active: 'var(--red)',
   investigating: 'var(--amber)',
@@ -13,7 +16,13 @@ const FEED_LABELS = {
   urlhaus: 'URLhaus',
   feodotracker: 'FeodoTracker',
   malwarebazaar: 'MalwareBazaar',
+  emergingThreats: 'EmergingThreats',
+  cinsArmy: 'CINS Army',
+  sslBlacklist: 'SSL Blacklist',
+  phishTank: 'PhishTank',
 }
+
+const TYPE_OPTIONS = ['All', 'IP', 'URL', 'Domain', 'SHA256']
 
 const CSV_HEADERS = [
   'Indicator',
@@ -27,6 +36,8 @@ const CSV_HEADERS = [
   'Source',
   'Date Added',
 ]
+
+const today = new Date().toISOString().split('T')[0]
 
 function escapeCsv(value) {
   const str = String(value ?? '')
@@ -65,41 +76,78 @@ function mergeIocs(live, local) {
   return merged
 }
 
+function matchesType(ioc, filterType) {
+  if (filterType === 'All') return true
+  const t = String(ioc.type || '')
+  if (filterType === 'IP') return t === 'IP' || t.toLowerCase().includes('ip')
+  return t === filterType
+}
+
+function LoadingSkeleton() {
+  return (
+    <div className="ioc-skeleton-wrap" aria-hidden="true">
+      {[1, 2, 3].map((n) => (
+        <div key={n} className="ioc-skeleton-row">
+          <span className="ioc-skeleton-cell short" />
+          <span className="ioc-skeleton-cell long" />
+          <span className="ioc-skeleton-cell medium" />
+          <span className="ioc-skeleton-cell medium" />
+          <span className="ioc-skeleton-cell long" />
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function IocTracker() {
   const [iocs, setIocs] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [lastUpdated, setLastUpdated] = useState(null)
+  const [totalCount, setTotalCount] = useState(0)
+  const [feedStatus, setFeedStatus] = useState({})
+  const [loadProgress, setLoadProgress] = useState(0)
   const [selectedIOCs, setSelectedIOCs] = useState(new Set())
   const [searchTerm, setSearchTerm] = useState('')
   const [filterType, setFilterType] = useState('All')
   const [filterSource, setFilterSource] = useState('All')
   const [filterConfidence, setFilterConfidence] = useState('All')
   const [filterStatus, setFilterStatus] = useState('All')
+  const [page, setPage] = useState(1)
   const [generatedKQL, setGeneratedKQL] = useState('')
   const [showKQLModal, setShowKQLModal] = useState(false)
-  const [activeFeeds, setActiveFeeds] = useState({})
   const [copyMsg, setCopyMsg] = useState('')
 
   const loadIOCs = useCallback(async () => {
     setLoading(true)
     setError(null)
+    setLoadProgress(0)
+
+    const progressTimer = setInterval(() => {
+      setLoadProgress((p) => Math.min(p + 8, 90))
+    }, 400)
+
     try {
-      const { iocs: live, activeFeeds: feeds } = await fetchAllIOCs()
-      setActiveFeeds(feeds)
-      setIocs(mergeIocs(live, localIocs))
+      const { iocs: live, feedStatus: status, totalCount: count } =
+        await fetchAllIOCs()
+      const merged = mergeIocs(live, localIocs)
+      setFeedStatus(status)
+      setTotalCount(merged.length)
+      setIocs(merged)
       setLastUpdated(new Date())
+      setLoadProgress(100)
     } catch (err) {
       setError(err.message || 'Failed to load live IOCs')
-      setIocs(mergeIocs([], localIocs))
-      setActiveFeeds({
-        threatfox: false,
-        urlhaus: false,
-        feodotracker: false,
-        malwarebazaar: false,
-      })
+      const merged = mergeIocs([], localIocs)
+      setIocs(merged)
+      setTotalCount(merged.length)
+      setFeedStatus(
+        Object.fromEntries(Object.keys(FEED_LABELS).map((k) => [k, false]))
+      )
     } finally {
+      clearInterval(progressTimer)
       setLoading(false)
+      setTimeout(() => setLoadProgress(0), 600)
     }
   }, [])
 
@@ -107,20 +155,19 @@ function IocTracker() {
     loadIOCs()
   }, [loadIOCs])
 
-  const types = useMemo(() => {
-    const set = new Set(iocs.map((i) => i.type).filter(Boolean))
-    return ['All', ...Array.from(set).sort()]
-  }, [iocs])
+  useEffect(() => {
+    setPage(1)
+  }, [searchTerm, filterType, filterSource, filterConfidence, filterStatus])
 
-  const sources = useMemo(() => {
-    const set = new Set(iocs.map((i) => i.source).filter(Boolean))
-    return ['All', ...Array.from(set).sort()]
-  }, [iocs])
+  const sourceOptions = useMemo(
+    () => ['All', ...Object.values(FEED_LABELS), 'Threat Intel Feed', 'Hunt Finding Q005'],
+    []
+  )
 
   const filtered = useMemo(() => {
     const term = searchTerm.trim().toLowerCase()
     return iocs.filter((ioc) => {
-      if (filterType !== 'All' && ioc.type !== filterType) return false
+      if (!matchesType(ioc, filterType)) return false
       if (filterSource !== 'All' && ioc.source !== filterSource) return false
       if (filterConfidence !== 'All' && ioc.confidence !== filterConfidence) return false
       if (filterStatus !== 'All' && ioc.status !== filterStatus) return false
@@ -143,19 +190,28 @@ function IocTracker() {
     })
   }, [iocs, searchTerm, filterType, filterSource, filterConfidence, filterStatus])
 
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+
+  const paginated = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE
+    return filtered.slice(start, start + PAGE_SIZE)
+  }, [filtered, page])
+
   const stats = useMemo(() => {
     const norm = (t) => String(t || '').toLowerCase()
     return {
       total: iocs.length,
-      active: iocs.filter((i) => i.status === 'active').length,
       ips: iocs.filter((i) => norm(i.type) === 'ip' || norm(i.type).includes('ip')).length,
-      domains: iocs.filter((i) => norm(i.type) === 'domain').length,
+      domainsUrls: iocs.filter((i) => norm(i.type) === 'domain' || norm(i.type) === 'url').length,
       hashes: iocs.filter((i) =>
         ['hash', 'sha256', 'md5'].some((h) => norm(i.type).includes(h))
       ).length,
-      urls: iocs.filter((i) => norm(i.type) === 'url').length,
+      active: iocs.filter((i) => i.status === 'active').length,
+      today: iocs.filter((i) => i.dateAdded === today).length,
     }
   }, [iocs])
+
+  const feedsOnline = Object.values(feedStatus).filter(Boolean).length
 
   const minutesAgo = lastUpdated
     ? Math.max(0, Math.floor((Date.now() - lastUpdated.getTime()) / 60000))
@@ -171,11 +227,17 @@ function IocTracker() {
   }
 
   const toggleSelectAll = () => {
-    if (selectedIOCs.size === filtered.length) {
-      setSelectedIOCs(new Set())
-    } else {
-      setSelectedIOCs(new Set(filtered.map((i) => i.indicator)))
-    }
+    const visible = paginated.map((i) => i.indicator)
+    const allSelected = visible.every((id) => selectedIOCs.has(id))
+    setSelectedIOCs((prev) => {
+      const next = new Set(prev)
+      if (allSelected) {
+        visible.forEach((id) => next.delete(id))
+      } else {
+        visible.forEach((id) => next.add(id))
+      }
+      return next
+    })
   }
 
   const clearFilters = () => {
@@ -184,13 +246,13 @@ function IocTracker() {
     setFilterSource('All')
     setFilterConfidence('All')
     setFilterStatus('All')
+    setPage(1)
   }
 
   const selectedObjects = iocs.filter((i) => selectedIOCs.has(i.indicator))
 
   const handleGenerateKQL = () => {
-    const kql = generateWatchlistKQL(selectedObjects)
-    setGeneratedKQL(kql)
+    setGeneratedKQL(generateWatchlistKQL(selectedObjects))
     setShowKQLModal(true)
   }
 
@@ -256,7 +318,10 @@ function IocTracker() {
             <span className="live-dot" aria-hidden="true" />
             LIVE
           </span>
-          <span className="ioc-count-badge">{iocs.length} IOCs</span>
+          <span className="ioc-count-badge">
+            {totalCount} IOCs from {FEED_COUNT} feeds
+            {feedsOnline > 0 && ` (${feedsOnline} online)`}
+          </span>
         </div>
         <div className="ioc-top-actions">
           {minutesAgo !== null && (
@@ -279,12 +344,26 @@ function IocTracker() {
         {Object.entries(FEED_LABELS).map(([key, label]) => (
           <span
             key={key}
-            className={`feed-badge ${activeFeeds[key] ? 'feed-ok' : 'feed-fail'}`}
+            className={`feed-badge ${feedStatus[key] ? 'feed-ok' : 'feed-fail'}`}
           >
-            {label} {activeFeeds[key] ? '✓' : '✗'}
+            {label} {feedStatus[key] ? '✓' : '✗'}
           </span>
         ))}
       </div>
+
+      {loading && (
+        <div className="ioc-load-progress-wrap">
+          <p className="ioc-loading-msg">
+            Fetching from {FEED_COUNT} threat intel feeds…
+          </p>
+          <div className="ioc-progress-track" role="progressbar" aria-valuenow={loadProgress} aria-valuemin={0} aria-valuemax={100}>
+            <div
+              className="ioc-progress-bar"
+              style={{ width: `${loadProgress}%` }}
+            />
+          </div>
+        </div>
+      )}
 
       {error && <p className="ioc-error-banner">{error} — showing local IOCs only.</p>}
 
@@ -296,18 +375,27 @@ function IocTracker() {
           onChange={(e) => setSearchTerm(e.target.value)}
           className="ioc-search-input"
           aria-label="Search IOCs"
+          disabled={loading && iocs.length === 0}
         />
-        <select value={filterType} onChange={(e) => setFilterType(e.target.value)} aria-label="Filter by type">
-          {types.map((t) => (
+        <select
+          value={filterType}
+          onChange={(e) => setFilterType(e.target.value)}
+          aria-label="Filter by type"
+        >
+          {TYPE_OPTIONS.map((t) => (
             <option key={t} value={t}>
-              {t === 'All' ? 'Type: All' : t}
+              Type: {t}
             </option>
           ))}
         </select>
-        <select value={filterSource} onChange={(e) => setFilterSource(e.target.value)} aria-label="Filter by source">
-          {sources.map((s) => (
+        <select
+          value={filterSource}
+          onChange={(e) => setFilterSource(e.target.value)}
+          aria-label="Filter by source"
+        >
+          {sourceOptions.map((s) => (
             <option key={s} value={s}>
-              {s === 'All' ? 'Source: All' : s}
+              Source: {s}
             </option>
           ))}
         </select>
@@ -318,7 +406,7 @@ function IocTracker() {
         >
           {['All', 'High', 'Medium', 'Low'].map((c) => (
             <option key={c} value={c}>
-              {c === 'All' ? 'Confidence: All' : c}
+              Confidence: {c}
             </option>
           ))}
         </select>
@@ -329,7 +417,7 @@ function IocTracker() {
         >
           {['All', 'active', 'investigating', 'watchlist'].map((s) => (
             <option key={s} value={s}>
-              {s === 'All' ? 'Status: All' : s}
+              Status: {s}
             </option>
           ))}
         </select>
@@ -338,108 +426,142 @@ function IocTracker() {
         </button>
       </div>
 
-      <div className="ioc-stats-row">
+      <div className="ioc-stats-row ioc-stats-row-6">
         <div className="ioc-stat-card">
           <span className="ioc-stat-value">{stats.total}</span>
-          <span className="ioc-stat-label">Total IOCs</span>
-        </div>
-        <div className="ioc-stat-card">
-          <span className="ioc-stat-value">{stats.active}</span>
-          <span className="ioc-stat-label">Active</span>
+          <span className="ioc-stat-label">Total</span>
         </div>
         <div className="ioc-stat-card">
           <span className="ioc-stat-value">{stats.ips}</span>
           <span className="ioc-stat-label">IPs</span>
         </div>
         <div className="ioc-stat-card">
-          <span className="ioc-stat-value">{stats.domains}</span>
-          <span className="ioc-stat-label">Domains</span>
+          <span className="ioc-stat-value">{stats.domainsUrls}</span>
+          <span className="ioc-stat-label">Domains/URLs</span>
         </div>
         <div className="ioc-stat-card">
           <span className="ioc-stat-value">{stats.hashes}</span>
           <span className="ioc-stat-label">Hashes</span>
         </div>
         <div className="ioc-stat-card">
-          <span className="ioc-stat-value">{stats.urls}</span>
-          <span className="ioc-stat-label">URLs</span>
+          <span className="ioc-stat-value">{stats.active}</span>
+          <span className="ioc-stat-label">Active</span>
+        </div>
+        <div className="ioc-stat-card">
+          <span className="ioc-stat-value">{stats.today}</span>
+          <span className="ioc-stat-label">Today</span>
         </div>
       </div>
 
       {loading && iocs.length === 0 ? (
-        <p className="ioc-loading">Loading live threat intelligence feeds…</p>
+        <LoadingSkeleton />
       ) : (
-        <div className="ioc-table-wrapper">
-          <table className="ioc-table">
-            <thead>
-              <tr>
-                <th>
-                  <input
-                    type="checkbox"
-                    checked={filtered.length > 0 && selectedIOCs.size === filtered.length}
-                    onChange={toggleSelectAll}
-                    aria-label="Select all visible IOCs"
-                  />
-                </th>
-                <th>Indicator</th>
-                <th>Type</th>
-                <th>TTP</th>
-                <th>Malware Family</th>
-                <th>Log Source</th>
-                <th>Confidence</th>
-                <th>Status</th>
-                <th>Source</th>
-                <th>Date Added</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((ioc, index) => (
-                <tr key={`${ioc.indicator}-${index}`}>
-                  <td>
+        <>
+          <div className="ioc-table-wrapper">
+            <table className="ioc-table">
+              <thead>
+                <tr>
+                  <th>
                     <input
                       type="checkbox"
-                      checked={selectedIOCs.has(ioc.indicator)}
-                      onChange={() => toggleSelect(ioc.indicator)}
-                      aria-label={`Select ${ioc.indicator}`}
+                      checked={
+                        paginated.length > 0 &&
+                        paginated.every((i) => selectedIOCs.has(i.indicator))
+                      }
+                      onChange={toggleSelectAll}
+                      aria-label="Select all on this page"
                     />
-                  </td>
-                  <td className="indicator-cell" title={ioc.indicator}>
-                    {ioc.indicator}
-                  </td>
-                  <td>
-                    <span className="type-badge">{ioc.type}</span>
-                  </td>
-                  <td>
-                    <span className="ttp-cell">
-                      {ioc.ttpId || ioc.ttp}
-                      {ioc.ttpId && <small>{ioc.ttp}</small>}
-                    </span>
-                  </td>
-                  <td className="malware-cell" title={ioc.malwareFamily}>
-                    {ioc.malwareFamily || '—'}
-                  </td>
-                  <td>{ioc.logSource}</td>
-                  <td>
-                    <span className={`confidence-${(ioc.confidence || '').toLowerCase()}`}>
-                      {ioc.confidence}
-                    </span>
-                  </td>
-                  <td>
-                    <span className="status-cell">
-                      <span
-                        className="status-dot"
-                        style={{ backgroundColor: STATUS_DOT[ioc.status] || 'var(--text-muted)' }}
-                        aria-hidden="true"
-                      />
-                      {ioc.status}
-                    </span>
-                  </td>
-                  <td>{ioc.source}</td>
-                  <td>{ioc.dateAdded}</td>
+                  </th>
+                  <th>Indicator</th>
+                  <th>Type</th>
+                  <th>TTP</th>
+                  <th>Malware Family</th>
+                  <th>Log Source</th>
+                  <th>Confidence</th>
+                  <th>Status</th>
+                  <th>Source</th>
+                  <th>Date Added</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {paginated.map((ioc, index) => (
+                  <tr key={`${ioc.indicator}-${index}`}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={selectedIOCs.has(ioc.indicator)}
+                        onChange={() => toggleSelect(ioc.indicator)}
+                        aria-label={`Select ${ioc.indicator}`}
+                      />
+                    </td>
+                    <td className="indicator-cell" title={ioc.indicator}>
+                      {ioc.indicator}
+                    </td>
+                    <td>
+                      <span className="type-badge">{ioc.type}</span>
+                    </td>
+                    <td>
+                      <span className="ttp-cell">
+                        {ioc.ttpId || ioc.ttp}
+                        {ioc.ttpId && <small>{ioc.ttp}</small>}
+                      </span>
+                    </td>
+                    <td className="malware-cell" title={ioc.malwareFamily}>
+                      {ioc.malwareFamily || '—'}
+                    </td>
+                    <td>{ioc.logSource}</td>
+                    <td>
+                      <span
+                        className={`confidence-${(ioc.confidence || '').toLowerCase()}`}
+                      >
+                        {ioc.confidence}
+                      </span>
+                    </td>
+                    <td>
+                      <span className="status-cell">
+                        <span
+                          className="status-dot"
+                          style={{
+                            backgroundColor:
+                              STATUS_DOT[ioc.status] || 'var(--text-muted)',
+                          }}
+                          aria-hidden="true"
+                        />
+                        {ioc.status}
+                      </span>
+                    </td>
+                    <td>{ioc.source}</td>
+                    <td>{ioc.dateAdded}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {filtered.length > PAGE_SIZE && (
+            <div className="ioc-pagination">
+              <button
+                type="button"
+                className="pagination-btn"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                Previous
+              </button>
+              <span className="page-indicator">
+                Page {page} of {totalPages} ({filtered.length} matching)
+              </span>
+              <button
+                type="button"
+                className="pagination-btn"
+                disabled={page >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              >
+                Next
+              </button>
+            </div>
+          )}
+        </>
       )}
 
       {!loading && filtered.length === 0 && (
@@ -468,7 +590,12 @@ function IocTracker() {
       </div>
 
       {showKQLModal && (
-        <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="kql-modal-title">
+        <div
+          className="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="kql-modal-title"
+        >
           <div className="modal-content">
             <div className="modal-header">
               <h3 id="kql-modal-title">Sentinel Watchlist KQL</h3>
