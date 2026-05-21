@@ -4,6 +4,7 @@ import MitreHeatmap from './components/MitreHeatmap'
 import KqlLibrary from './components/KqlLibrary'
 import Hypotheses from './components/Hypotheses'
 import IocTracker from './components/IocTracker'
+import QueryGenerator from './components/QueryGenerator'
 import techniques from './data/techniques.json'
 import queries from './data/queries.json'
 import hypothesesData from './data/hypotheses.json'
@@ -15,6 +16,7 @@ const TABS = [
   { id: 'kql', label: 'KQL Library' },
   { id: 'hypotheses', label: 'Hypotheses' },
   { id: 'iocs', label: 'IOC Tracker' },
+  { id: 'generator', label: 'KQL Generator' },
 ]
 
 function App() {
@@ -35,6 +37,8 @@ function App() {
         return <Hypotheses />
       case 'iocs':
         return <IocTracker />
+      case 'generator':
+        return <QueryGenerator />
       default:
         return <MitreHeatmap />
     }
