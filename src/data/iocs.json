@@ -1,0 +1,134 @@
+[
+  {
+    "indicator": "185.220.101.42",
+    "type": "IP",
+    "ttp": "Command and Control",
+    "ttpId": "T1071",
+    "source": "Threat Intel Feed",
+    "logSource": "CommonSecurityLog",
+    "confidence": "High",
+    "status": "active",
+    "dateAdded": "2026-05-01"
+  },
+  {
+    "indicator": "evil-c2.beacon-dns.net",
+    "type": "Domain",
+    "ttp": "Command and Control",
+    "ttpId": "T1071",
+    "source": "Hunt Finding Q005",
+    "logSource": "ASimDnsActivity",
+    "confidence": "High",
+    "status": "active",
+    "dateAdded": "2026-05-03"
+  },
+  {
+    "indicator": "a3f5b8c9d1e2f4a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1",
+    "type": "Hash",
+    "ttp": "Execution",
+    "ttpId": "T1059",
+    "source": "MDE Alert",
+    "logSource": "MDE",
+    "confidence": "High",
+    "status": "investigating",
+    "dateAdded": "2026-05-05"
+  },
+  {
+    "indicator": "certutil -urlcache -split -f http",
+    "type": "CommandPattern",
+    "ttp": "Defense Evasion",
+    "ttpId": "T1218",
+    "source": "Sigma Rule",
+    "logSource": "SecurityEvents",
+    "confidence": "Medium",
+    "status": "watchlist",
+    "dateAdded": "2026-04-15"
+  },
+  {
+    "indicator": ".*\\.[a-z0-9]{40,}\\.evil-c2\\.beacon-dns\\.net",
+    "type": "DNSPattern",
+    "ttp": "Command and Control",
+    "ttpId": "T1071",
+    "source": "Hunt Finding Q005",
+    "logSource": "ASimDnsActivity",
+    "confidence": "High",
+    "status": "active",
+    "dateAdded": "2026-05-03"
+  },
+  {
+    "indicator": "203.0.113.88",
+    "type": "IP",
+    "ttp": "Exfiltration",
+    "ttpId": "T1048",
+    "source": "Firewall Logs",
+    "logSource": "CommonSecurityLog",
+    "confidence": "Medium",
+    "status": "investigating",
+    "dateAdded": "2026-05-10"
+  },
+  {
+    "indicator": "payload-drop.tk",
+    "type": "Domain",
+    "ttp": "Initial Access",
+    "ttpId": "T1566",
+    "source": "Phishing Analysis",
+    "logSource": "MDE",
+    "confidence": "High",
+    "status": "active",
+    "dateAdded": "2026-05-12"
+  },
+  {
+    "indicator": "7f8e9d0c1b2a3948574635241302f1e0d9c8b7a69584736251403f2e1d0c9b8a7",
+    "type": "Hash",
+    "ttp": "Impact",
+    "ttpId": "T1486",
+    "source": "VirusTotal",
+    "logSource": "MDE",
+    "confidence": "High",
+    "status": "active",
+    "dateAdded": "2026-05-14"
+  },
+  {
+    "indicator": "powershell -enc JAB",
+    "type": "CommandPattern",
+    "ttp": "Execution",
+    "ttpId": "T1059",
+    "source": "Internal Baseline",
+    "logSource": "MDE",
+    "confidence": "Medium",
+    "status": "watchlist",
+    "dateAdded": "2026-03-20"
+  },
+  {
+    "indicator": "198.51.100.17",
+    "type": "IP",
+    "ttp": "Lateral Movement",
+    "ttpId": "T1550",
+    "source": "SecurityEvent Correlation",
+    "logSource": "SecurityEvents",
+    "confidence": "Low",
+    "status": "watchlist",
+    "dateAdded": "2026-05-08"
+  },
+  {
+    "indicator": "vssadmin delete shadows /all /quiet",
+    "type": "CommandPattern",
+    "ttp": "Impact",
+    "ttpId": "T1490",
+    "source": "Ransomware Playbook",
+    "logSource": "SecurityEvents",
+    "confidence": "High",
+    "status": "active",
+    "dateAdded": "2026-04-28"
+  },
+  {
+    "indicator": "exfil-staging.blob.core.windows.net",
+    "type": "Domain",
+    "ttp": "Exfiltration",
+    "ttpId": "T1567",
+    "source": "Trend Micro DLP",
+    "logSource": "TrendMicro",
+    "confidence": "Medium",
+    "status": "investigating",
+    "dateAdded": "2026-05-18"
+  }
+]

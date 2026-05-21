@@ -1,0 +1,74 @@
+[
+  {
+    "id": "H001",
+    "priority": "critical",
+    "title": "Phishing-to-Execution Kill Chain",
+    "tacticChain": ["Initial Access", "Execution", "Persistence"],
+    "logSources": ["MDE", "SecurityEvents", "OfficeActivity"],
+    "description": "An adversary delivers a macro-enabled document via email, executes PowerShell or WScript, and establishes persistence via scheduled task within 24 hours.",
+    "tags": ["phishing", "macro", "powershell", "email"]
+  },
+  {
+    "id": "H002",
+    "priority": "critical",
+    "title": "Credential Theft and Lateral Spread",
+    "tacticChain": ["Credential Access", "Lateral Movement", "Discovery"],
+    "logSources": ["MDE", "SecurityEvents"],
+    "description": "Attacker dumps credentials from LSASS, uses Pass-the-Hash over NTLM (logon type 3), and performs remote discovery before moving to additional hosts.",
+    "tags": ["lsass", "pth", "ntlm", "mimikatz"]
+  },
+  {
+    "id": "H003",
+    "priority": "critical",
+    "title": "Ransomware Pre-Stage Activity",
+    "tacticChain": ["Defense Evasion", "Impact", "Inhibit Recovery"],
+    "logSources": ["SecurityEvents", "MDE"],
+    "description": "Shadow copies are deleted via vssadmin, backup services stopped, and mass file encryption follows within a 2-hour window.",
+    "tags": ["ransomware", "vssadmin", "shadow-copy", "encryption"]
+  },
+  {
+    "id": "H004",
+    "priority": "medium",
+    "title": "DNS Tunneling C2 Channel",
+    "tacticChain": ["Command and Control", "Exfiltration"],
+    "logSources": ["ASimDnsActivity"],
+    "description": "Beaconing via long subdomain labels and TXT record queries to the same rare domain from multiple internal hosts indicates DNS-based C2.",
+    "tags": ["dns", "beaconing", "txt", "tunneling"]
+  },
+  {
+    "id": "H005",
+    "priority": "medium",
+    "title": "LOLBin Defense Evasion Pipeline",
+    "tacticChain": ["Defense Evasion", "Execution"],
+    "logSources": ["SecurityEvents"],
+    "description": "Sequential use of certutil for download, regsvr32 for execution, and msiexec for silent install suggests staged payload delivery without traditional malware.",
+    "tags": ["lolbin", "certutil", "regsvr32", "msiexec"]
+  },
+  {
+    "id": "H006",
+    "priority": "medium",
+    "title": "Bulk Data Exfiltration via Egress",
+    "tacticChain": ["Collection", "Exfiltration"],
+    "logSources": ["TrendMicro", "CommonSecurityLog"],
+    "description": "Large outbound transfers exceeding 500MB/hour to rare external IPs correlate with prior archive staging on the same source host.",
+    "tags": ["exfiltration", "firewall", "dlp", "egress"]
+  },
+  {
+    "id": "H007",
+    "priority": "low",
+    "title": "Insider Privilege Escalation",
+    "tacticChain": ["Persistence", "Privilege Escalation"],
+    "logSources": ["SecurityEvents"],
+    "description": "A standard user account creates a new local administrator account and adds it to privileged groups outside of normal change windows.",
+    "tags": ["insider", "4720", "4732", "admin"]
+  },
+  {
+    "id": "H008",
+    "priority": "low",
+    "title": "Password Spray with Eventual Compromise",
+    "tacticChain": ["Credential Access", "Initial Access"],
+    "logSources": ["SecurityEvents", "AADSignInLogs"],
+    "description": "Low-and-slow failed authentication across many accounts from a single source IP, followed by one successful logon, indicates password spraying.",
+    "tags": ["brute-force", "spray", "4625", "4624"]
+  }
+]
