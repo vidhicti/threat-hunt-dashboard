@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import MetricCards from './components/MetricCards'
 import MitreHeatmap from './components/MitreHeatmap'
 import KqlLibrary from './components/KqlLibrary'
@@ -8,7 +8,8 @@ import QueryGenerator from './components/QueryGenerator'
 import techniques from './data/techniques.json'
 import queries from './data/queries.json'
 import hypothesesData from './data/hypotheses.json'
-import iocs from './data/iocs.json'
+import localIocs from './data/iocs.json'
+import { fetchAllIOCs, mergeIocLists } from './services/threatIntel'
 import './App.css'
 
 const TABS = [
@@ -21,10 +22,32 @@ const TABS = [
 
 function App() {
   const [activeTab, setActiveTab] = useState('heatmap')
+  const [iocCount, setIocCount] = useState(localIocs.length)
+  const [iocsLoading, setIocsLoading] = useState(true)
 
   const coveragePercent = useMemo(() => {
     const covered = techniques.filter((t) => t.coverage !== 'none').length
     return Math.round((covered / techniques.length) * 100)
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const { iocs: live } = await fetchAllIOCs()
+        if (!cancelled) {
+          const merged = mergeIocLists(live, localIocs)
+          setIocCount(merged.length)
+        }
+      } catch {
+        if (!cancelled) setIocCount(localIocs.length)
+      } finally {
+        if (!cancelled) setIocsLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   const renderTab = () => {
@@ -36,7 +59,7 @@ function App() {
       case 'hypotheses':
         return <Hypotheses />
       case 'iocs':
-        return <IocTracker />
+        return <IocTracker onIocCountChange={setIocCount} />
       case 'generator':
         return <QueryGenerator />
       default:
@@ -62,7 +85,7 @@ function App() {
         totalTTPs={techniques.length}
         huntQueries={queries.length}
         hypotheses={hypothesesData.length}
-        iocsTracked={iocs.length}
+        iocsTracked={iocsLoading ? '…' : iocCount}
         coveragePercent={coveragePercent}
       />
 
@@ -85,7 +108,7 @@ function App() {
         <span>Sentinel Threat Hunt Dashboard</span>
         <span className="footer-meta">
           {techniques.length} techniques · {queries.length} queries ·{' '}
-          {hypothesesData.length} hypotheses · {iocs.length} IOCs
+          {hypothesesData.length} hypotheses · {iocCount} IOCs
         </span>
       </footer>
     </div>

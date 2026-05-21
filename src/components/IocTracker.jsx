@@ -1,25 +1,19 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import localIocs from '../data/iocs.json'
-import { fetchAllIOCs, generateWatchlistKQL } from '../services/threatIntel'
+import {
+  fetchAllIOCs,
+  generateWatchlistKQL,
+  FEED_LABELS,
+  FEED_COUNT,
+  mergeIocLists,
+} from '../services/threatIntel'
 
 const PAGE_SIZE = 50
-const FEED_COUNT = 8
 
 const STATUS_DOT = {
   active: 'var(--red)',
   investigating: 'var(--amber)',
   watchlist: 'var(--green)',
-}
-
-const FEED_LABELS = {
-  threatfox: 'ThreatFox',
-  urlhaus: 'URLhaus',
-  feodotracker: 'FeodoTracker',
-  malwarebazaar: 'MalwareBazaar',
-  emergingThreats: 'EmergingThreats',
-  cinsArmy: 'CINS Army',
-  sslBlacklist: 'SSL Blacklist',
-  phishTank: 'PhishTank',
 }
 
 const TYPE_OPTIONS = ['All', 'IP', 'URL', 'Domain', 'SHA256']
@@ -56,25 +50,6 @@ function normalizeLocalIoc(ioc) {
   }
 }
 
-function mergeIocs(live, local) {
-  const seen = new Set()
-  const merged = []
-
-  ;[...live, ...local.map(normalizeLocalIoc)].forEach((ioc) => {
-    const key = String(ioc.indicator).toLowerCase()
-    if (!key || seen.has(key)) return
-    seen.add(key)
-    merged.push(ioc)
-  })
-
-  merged.sort((a, b) => {
-    const da = new Date(a.dateAdded).getTime() || 0
-    const db = new Date(b.dateAdded).getTime() || 0
-    return db - da
-  })
-
-  return merged
-}
 
 function matchesType(ioc, filterType) {
   if (filterType === 'All') return true
@@ -99,7 +74,7 @@ function LoadingSkeleton() {
   )
 }
 
-function IocTracker() {
+function IocTracker({ onIocCountChange }) {
   const [iocs, setIocs] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -130,17 +105,19 @@ function IocTracker() {
     try {
       const { iocs: live, feedStatus: status, totalCount: count } =
         await fetchAllIOCs()
-      const merged = mergeIocs(live, localIocs)
+      const merged = mergeIocLists(live, localIocs.map(normalizeLocalIoc))
       setFeedStatus(status)
       setTotalCount(merged.length)
       setIocs(merged)
+      onIocCountChange?.(merged.length)
       setLastUpdated(new Date())
       setLoadProgress(100)
     } catch (err) {
       setError(err.message || 'Failed to load live IOCs')
-      const merged = mergeIocs([], localIocs)
+      const merged = mergeIocLists([], localIocs.map(normalizeLocalIoc))
       setIocs(merged)
       setTotalCount(merged.length)
+      onIocCountChange?.(merged.length)
       setFeedStatus(
         Object.fromEntries(Object.keys(FEED_LABELS).map((k) => [k, false]))
       )
@@ -149,7 +126,7 @@ function IocTracker() {
       setLoading(false)
       setTimeout(() => setLoadProgress(0), 600)
     }
-  }, [])
+  }, [onIocCountChange])
 
   useEffect(() => {
     loadIOCs()

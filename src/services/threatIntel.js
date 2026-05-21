@@ -9,16 +9,33 @@ export const FEEDS = {
   emergingThreats: 'https://rules.emergingthreats.net/blockrules/compromised-ips.txt',
   cinsArmy: 'https://cinsscore.com/list/ci-badguys.txt',
   sslBlacklist: 'https://sslbl.abuse.ch/blacklist/sslipblacklist.json',
-  phishTank: 'https://data.phishtank.com/data/online-valid.json',
+  alienVaultOtx: 'https://otx.alienvault.com/api/v1/pulses/subscribed?limit=5',
+  alienVaultReputation: 'https://reputation.alienvault.com/reputation.generic',
+  certPoland: 'https://hole.cert.pl/domains/domains.json',
 }
 
-const ABUSE_HEADERS = {
-  'Content-Type': 'application/json',
-  'User-Agent': 'ThreatHuntDashboard/1.0 (Sentinel SOC)',
+export const FEED_LABELS = {
+  threatfox: 'ThreatFox',
+  urlhaus: 'URLhaus',
+  feodotracker: 'FeodoTracker',
+  malwarebazaar: 'MalwareBazaar',
+  emergingThreats: 'EmergingThreats',
+  cinsArmy: 'CINS Army',
+  sslBlacklist: 'SSL Blacklist',
+  alienVault: 'AlienVault OTX',
+  certPoland: 'CERT Poland',
 }
+
+export const FEED_COUNT = Object.keys(FEED_LABELS).length
+
+const JSON_HEADERS = { 'Content-Type': 'application/json' }
 
 const IPV4_REGEX =
   /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/
+
+function proxied(url) {
+  return PROXY + encodeURIComponent(url)
+}
 
 function isValidIPv4(value) {
   return IPV4_REGEX.test(String(value).trim())
@@ -54,11 +71,31 @@ function feedResult(items, success) {
   return { items, success }
 }
 
+export function mergeIocLists(live, local) {
+  const seen = new Set()
+  const merged = []
+
+  ;[...live, ...local].forEach((ioc) => {
+    const key = String(ioc.indicator).toLowerCase()
+    if (!key || seen.has(key)) return
+    seen.add(key)
+    merged.push(ioc)
+  })
+
+  merged.sort((a, b) => {
+    const da = new Date(a.dateAdded).getTime() || 0
+    const db = new Date(b.dateAdded).getTime() || 0
+    return db - da
+  })
+
+  return merged
+}
+
 export async function fetchThreatFoxIOCs() {
   try {
-    const response = await fetch(FEEDS.threatfox, {
+    const response = await fetch(proxied(FEEDS.threatfox), {
       method: 'POST',
-      headers: ABUSE_HEADERS,
+      headers: JSON_HEADERS,
       body: JSON.stringify({ query: 'get_iocs', days: 7 }),
     })
     if (!response.ok) return feedResult([], false)
@@ -92,9 +129,9 @@ export async function fetchThreatFoxIOCs() {
 
 export async function fetchURLhausIOCs() {
   try {
-    const response = await fetch(FEEDS.urlhaus, {
+    const response = await fetch(proxied(FEEDS.urlhaus), {
       method: 'POST',
-      headers: ABUSE_HEADERS,
+      headers: JSON_HEADERS,
       body: JSON.stringify({ query: 'get_urls', limit: 100 }),
     })
     if (!response.ok) return feedResult([], false)
@@ -125,9 +162,7 @@ export async function fetchURLhausIOCs() {
 
 export async function fetchFeodoTrackerIOCs() {
   try {
-    const response = await fetch(FEEDS.feodotracker, {
-      headers: { 'User-Agent': ABUSE_HEADERS['User-Agent'] },
-    })
+    const response = await fetch(proxied(FEEDS.feodotracker))
     if (!response.ok) return feedResult([], false)
     const json = await response.json()
     const rows = (Array.isArray(json) ? json : json.data || []).slice(0, 100)
@@ -155,9 +190,9 @@ export async function fetchFeodoTrackerIOCs() {
 
 export async function fetchMalwareBazaarIOCs() {
   try {
-    const response = await fetch(FEEDS.malwarebazaar, {
+    const response = await fetch(proxied(FEEDS.malwarebazaar), {
       method: 'POST',
-      headers: ABUSE_HEADERS,
+      headers: JSON_HEADERS,
       body: JSON.stringify({ query: 'get_recent', selector: '100' }),
     })
     if (!response.ok) return feedResult([], false)
@@ -188,7 +223,7 @@ export async function fetchMalwareBazaarIOCs() {
 
 export async function fetchEmergingThreatsIOCs() {
   try {
-    const response = await fetch(`${PROXY}${FEEDS.emergingThreats}`)
+    const response = await fetch(proxied(FEEDS.emergingThreats))
     if (!response.ok) return feedResult([], false)
     const text = await response.text()
     const lines = text
@@ -218,7 +253,7 @@ export async function fetchEmergingThreatsIOCs() {
 
 export async function fetchCINSArmyIOCs() {
   try {
-    const response = await fetch(`${PROXY}${FEEDS.cinsArmy}`)
+    const response = await fetch(proxied(FEEDS.cinsArmy))
     if (!response.ok) return feedResult([], false)
     const text = await response.text()
     const lines = text
@@ -248,9 +283,7 @@ export async function fetchCINSArmyIOCs() {
 
 export async function fetchSSLBlacklistIOCs() {
   try {
-    const response = await fetch(FEEDS.sslBlacklist, {
-      headers: { 'User-Agent': ABUSE_HEADERS['User-Agent'] },
-    })
+    const response = await fetch(proxied(FEEDS.sslBlacklist))
     if (!response.ok) return feedResult([], false)
     const json = await response.json()
     const rows = (json.blacklist || []).slice(0, 100)
@@ -276,28 +309,112 @@ export async function fetchSSLBlacklistIOCs() {
   }
 }
 
-export async function fetchPhishTankIOCs() {
+function parseAlienVaultReputation(text) {
+  const lines = text.split('\n').filter((l) => l && !l.startsWith('#')).slice(0, 100)
+  return lines
+    .map((line) => {
+      const parts = line.split('#')
+      const indicator = parts[0].trim()
+      return {
+        indicator,
+        type: 'IP',
+        ttp: 'T1071 C2',
+        ttpId: 'T1071',
+        source: 'AlienVault OTX',
+        logSource: 'CommonSecurityLog',
+        confidence: 'Medium',
+        status: 'active',
+        dateAdded: today,
+        malwareFamily: parts[2]?.trim() || 'Unknown',
+        threatType: '',
+      }
+    })
+    .filter((i) => i.indicator.match(/^\d+\.\d+\.\d+\.\d+$/))
+}
+
+function parseAlienVaultPulses(json) {
+  const items = []
+  const pulses = json.results || []
+  for (const pulse of pulses.slice(0, 5)) {
+    const indicators = pulse.indicators || []
+    for (const ind of indicators.slice(0, 50)) {
+      const type = normalizeType(ind.type)
+      items.push({
+        indicator: ind.indicator || '',
+        type,
+        ttp: pulse.name || 'T1071 C2',
+        ttpId: 'T1071',
+        source: 'AlienVault OTX',
+        logSource: mapTypeToLogSource(type),
+        confidence: 'Medium',
+        status: 'active',
+        dateAdded: formatDate(pulse.created),
+        malwareFamily: pulse.malware_families?.[0] || pulse.name || '',
+        threatType: ind.type || '',
+      })
+    }
+  }
+  return items.filter((i) => i.indicator).slice(0, 100)
+}
+
+export async function fetchAlienVaultIOCs() {
   try {
-    const response = await fetch(`${PROXY}${FEEDS.phishTank}`)
+    const response = await fetch(proxied(FEEDS.alienVaultOtx), {
+      headers: { 'X-OTX-API-KEY': '' },
+    })
+    if (response.ok) {
+      const json = await response.json()
+      const items = parseAlienVaultPulses(json)
+      if (items.length > 0) return feedResult(items, true)
+    }
+  } catch {
+    /* fall through to reputation feed */
+  }
+
+  try {
+    const fallback = await fetch(proxied(FEEDS.alienVaultReputation))
+    if (!fallback.ok) return feedResult([], false)
+    const text = await fallback.text()
+    const items = parseAlienVaultReputation(text)
+    return feedResult(items, items.length > 0)
+  } catch {
+    return feedResult([], false)
+  }
+}
+
+export async function fetchAbuseCHDNS() {
+  try {
+    const response = await fetch(FEEDS.certPoland)
     if (!response.ok) return feedResult([], false)
-    const json = await response.json()
-    const rows = Array.isArray(json) ? json.slice(0, 100) : []
+    const data = await response.json()
+    const rows = Array.isArray(data) ? data.slice(0, 200) : []
 
     const items = rows
-      .map((item) => ({
-        indicator: item.url || '',
-        type: 'URL',
-        ttp: 'T1566.002 Phishing',
-        ttpId: 'T1566.002',
-        source: 'PhishTank',
-        logSource: 'ASimDnsActivityLogs',
-        confidence: 'High',
-        status: 'active',
-        dateAdded: formatDate(item.submission_time),
-        malwareFamily: '',
-        threatType: 'phishing',
-      }))
-      .filter((ioc) => ioc.indicator)
+      .map((item) => {
+        const domain =
+          typeof item === 'string'
+            ? item
+            : item.DomainAddress || item.domain || item.name || ''
+        return {
+          indicator: domain,
+          type: 'Domain',
+          ttp: 'T1566 Phishing / T1071 C2',
+          ttpId: 'T1566',
+          source: 'CERT Poland',
+          logSource: 'ASimDnsActivityLogs',
+          confidence: 'High',
+          status: 'active',
+          dateAdded: formatDate(
+            typeof item === 'object' ? item.InsertDate || item.insert_date : null
+          ),
+          malwareFamily:
+            typeof item === 'object'
+              ? item.Category || item.Reason || 'Unknown'
+              : 'Unknown',
+          threatType: 'phishing',
+        }
+      })
+      .filter((ioc) => ioc.indicator && !ioc.indicator.includes(' '))
     return feedResult(items, true)
   } catch {
     return feedResult([], false)
@@ -312,7 +429,8 @@ const FEED_FETCHERS = [
   { key: 'emergingThreats', fetch: fetchEmergingThreatsIOCs },
   { key: 'cinsArmy', fetch: fetchCINSArmyIOCs },
   { key: 'sslBlacklist', fetch: fetchSSLBlacklistIOCs },
-  { key: 'phishTank', fetch: fetchPhishTankIOCs },
+  { key: 'alienVault', fetch: fetchAlienVaultIOCs },
+  { key: 'certPoland', fetch: fetchAbuseCHDNS },
 ]
 
 export async function fetchAllIOCs() {
