@@ -12,6 +12,30 @@ const CATEGORIES = [
   { id: 'defense-evasion', label: 'Defense Evasion' },
 ]
 
+function exportAllKql() {
+  const content = queries
+    .map(
+      (q) =>
+        `${'='.repeat(60)}\n` +
+        `${q.id}: ${q.title}\n` +
+        `${'='.repeat(60)}\n` +
+        `MITRE: ${q.mitreTechnique} | Tactic: ${q.tactic}\n` +
+        `Log Source: ${q.logSource} | Severity: ${q.severity}\n` +
+        `Category: ${q.category}\n\n` +
+        `Description:\n${q.description}\n\n` +
+        `KQL:\n${q.kql}\n`
+    )
+    .join('\n')
+
+  const blob = new Blob([content], { type: 'text/plain' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = 'sentinel-hunt-queries.txt'
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
 function KqlLibrary() {
   const [activeCategory, setActiveCategory] = useState('all')
   const [copiedId, setCopiedId] = useState(null)
@@ -33,6 +57,12 @@ function KqlLibrary() {
 
   return (
     <div className="kql-library">
+      <div className="library-toolbar">
+        <button type="button" className="export-btn" onClick={exportAllKql}>
+          Export All KQL
+        </button>
+      </div>
+
       <div className="category-filters">
         {CATEGORIES.map((cat) => (
           <button

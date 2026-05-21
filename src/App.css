@@ -156,6 +156,20 @@ body {
 /* MITRE Heatmap */
 .mitre-heatmap {
   position: relative;
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.mitre-heatmap.panel-open .heatmap-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.heatmap-main {
+  flex: 1;
+  min-width: 0;
+  position: relative;
 }
 
 .heatmap-legend {
@@ -229,6 +243,184 @@ body {
   outline-offset: 1px;
 }
 
+.technique-tile.selected {
+  outline: 3px solid var(--text-heading);
+  outline-offset: 2px;
+  transform: scale(1.1);
+  box-shadow: var(--shadow);
+}
+
+.technique-panel {
+  width: 340px;
+  flex-shrink: 0;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  max-height: calc(100vh - 280px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 20px;
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  background: #21262d;
+}
+
+.panel-header h2 {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-heading);
+}
+
+.panel-close-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.panel-close-btn:hover {
+  color: var(--text-heading);
+  border-color: var(--accent);
+}
+
+.panel-body {
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.panel-tech-id {
+  margin: 0 0 4px;
+  font-family: monospace;
+  font-size: 0.85rem;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.panel-tech-name {
+  margin: 0 0 16px;
+  font-size: 1.1rem;
+  color: var(--text-heading);
+  line-height: 1.3;
+}
+
+.panel-meta {
+  margin: 0 0 20px;
+  padding: 0;
+}
+
+.panel-meta-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+
+.panel-meta-row dt {
+  margin: 0;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.panel-meta-row dd {
+  margin: 0;
+  text-align: right;
+}
+
+.panel-coverage-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #fff;
+  text-transform: capitalize;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+
+.panel-queries-title {
+  margin: 0 0 12px;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.panel-query-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.panel-query-item {
+  background: #0d1117;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 0.8rem;
+}
+
+.panel-query-item strong {
+  display: block;
+  color: var(--text-heading);
+  margin: 4px 0 6px;
+  font-size: 0.85rem;
+}
+
+.panel-query-item p {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.panel-query-id {
+  font-family: monospace;
+  font-size: 0.7rem;
+  color: var(--accent);
+  margin-right: 8px;
+}
+
+.panel-no-queries {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+@media (max-width: 900px) {
+  .mitre-heatmap.panel-open {
+    flex-direction: column;
+  }
+
+  .technique-panel {
+    width: 100%;
+    max-height: none;
+    position: static;
+  }
+}
+
 .tile-id {
   font-size: 0.7rem;
   font-weight: 700;
@@ -260,6 +452,27 @@ body {
 .tooltip-coverage {
   color: var(--text-muted);
   text-transform: capitalize;
+}
+
+/* Export buttons */
+.library-toolbar {
+  margin-bottom: 16px;
+}
+
+.export-btn {
+  background: transparent;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.export-btn:hover {
+  background: rgba(88, 166, 255, 0.15);
 }
 
 /* KQL Library */

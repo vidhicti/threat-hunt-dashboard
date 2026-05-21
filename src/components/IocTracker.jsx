@@ -7,6 +7,55 @@ const STATUS_DOT = {
   watchlist: 'var(--green)',
 }
 
+const CSV_HEADERS = [
+  'Indicator',
+  'Type',
+  'TTP',
+  'TTP ID',
+  'Source',
+  'Log Source',
+  'Confidence',
+  'Status',
+  'Date Added',
+]
+
+function escapeCsv(value) {
+  const str = String(value ?? '')
+  if (str.includes('"') || str.includes(',') || str.includes('\n')) {
+    return `"${str.replace(/"/g, '""')}"`
+  }
+  return str
+}
+
+function exportCsv(rows) {
+  const lines = [
+    CSV_HEADERS.join(','),
+    ...rows.map((ioc) =>
+      [
+        ioc.indicator,
+        ioc.type,
+        ioc.ttp,
+        ioc.ttpId,
+        ioc.source,
+        ioc.logSource,
+        ioc.confidence,
+        ioc.status,
+        ioc.dateAdded,
+      ]
+        .map(escapeCsv)
+        .join(',')
+    ),
+  ]
+
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = 'ioc-tracker.csv'
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
 function IocTracker() {
   const [search, setSearch] = useState('')
 
@@ -43,6 +92,13 @@ function IocTracker() {
           className="ioc-search-input"
           aria-label="Search IOCs"
         />
+        <button
+          type="button"
+          className="export-btn"
+          onClick={() => exportCsv(filtered)}
+        >
+          Export CSV
+        </button>
         <span className="ioc-count">
           {filtered.length} of {iocs.length} IOCs
         </span>
