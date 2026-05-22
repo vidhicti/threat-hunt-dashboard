@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import localIocs from '../data/iocs.json'
 import {
   fetchAllIOCs,
@@ -74,10 +74,30 @@ function LoadingSkeleton() {
   )
 }
 
-function IocTracker({ onIocCountChange }) {
+const LAST_VISIT_KEY = 'iocLastVisitTimestamp'
+
+function isNewSinceVisit(dateAdded, baselineDate) {
+  if (!dateAdded || !baselineDate) return false
+  const added = String(dateAdded).slice(0, 10)
+  const baseline = String(baselineDate).slice(0, 10)
+  return added >= baseline
+}
+
+function IocTracker({
+  onIocCountChange,
+  onNewIocCountChange,
+  iocTabActive = false,
+  highlightId,
+  highlightTerm,
+  onHighlightDone,
+}) {
   const [iocs, setIocs] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [newIocCount, setNewIocCount] = useState(0)
+  const visitBaselineRef = useRef(
+    localStorage.getItem(LAST_VISIT_KEY) || '1970-01-01'
+  )
   const [lastUpdated, setLastUpdated] = useState(null)
   const [totalCount, setTotalCount] = useState(0)
   const [feedStatus, setFeedStatus] = useState({})
@@ -88,6 +108,7 @@ function IocTracker({ onIocCountChange }) {
   const [filterSource, setFilterSource] = useState('All')
   const [filterConfidence, setFilterConfidence] = useState('All')
   const [filterStatus, setFilterStatus] = useState('All')
+  const [filterNewOnly, setFilterNewOnly] = useState(false)
   const [page, setPage] = useState(1)
   const [generatedKQL, setGeneratedKQL] = useState('')
   const [showKQLModal, setShowKQLModal] = useState(false)
@@ -110,6 +131,12 @@ function IocTracker({ onIocCountChange }) {
       setTotalCount(merged.length)
       setIocs(merged)
       onIocCountChange?.(merged.length)
+      const baseline = visitBaselineRef.current
+      const newCount = merged.filter((ioc) =>
+        isNewSinceVisit(ioc.dateAdded, baseline)
+      ).length
+      setNewIocCount(newCount)
+      onNewIocCountChange?.(newCount)
       setLastUpdated(new Date())
       setLoadProgress(100)
     } catch (err) {
@@ -118,6 +145,12 @@ function IocTracker({ onIocCountChange }) {
       setIocs(merged)
       setTotalCount(merged.length)
       onIocCountChange?.(merged.length)
+      const baseline = visitBaselineRef.current
+      const newCount = merged.filter((ioc) =>
+        isNewSinceVisit(ioc.dateAdded, baseline)
+      ).length
+      setNewIocCount(newCount)
+      onNewIocCountChange?.(newCount)
       setFeedStatus(
         Object.fromEntries(Object.keys(FEED_LABELS).map((k) => [k, false]))
       )
@@ -134,7 +167,26 @@ function IocTracker({ onIocCountChange }) {
 
   useEffect(() => {
     setPage(1)
-  }, [searchTerm, filterType, filterSource, filterConfidence, filterStatus])
+  }, [searchTerm, filterType, filterSource, filterConfidence, filterStatus, filterNewOnly])
+
+  useEffect(() => {
+    if (!iocTabActive) return
+    visitBaselineRef.current = new Date().toISOString().slice(0, 10)
+    setNewIocCount(0)
+    onNewIocCountChange?.(0)
+  }, [iocTabActive, onNewIocCountChange])
+
+  useEffect(() => {
+    if (!highlightId && !highlightTerm) return
+    if (highlightTerm) setSearchTerm(highlightTerm)
+    requestAnimationFrame(() => {
+      const row = document.getElementById(
+        `ioc-row-${encodeURIComponent(highlightId)}`
+      )
+      row?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      onHighlightDone?.()
+    })
+  }, [highlightId, highlightTerm, onHighlightDone, iocs.length])
 
   const sourceOptions = useMemo(
     () => ['All', ...Object.values(FEED_LABELS), 'Threat Intel Feed', 'Hunt Finding Q005'],
@@ -143,7 +195,9 @@ function IocTracker({ onIocCountChange }) {
 
   const filtered = useMemo(() => {
     const term = searchTerm.trim().toLowerCase()
+    const baseline = visitBaselineRef.current
     return iocs.filter((ioc) => {
+      if (filterNewOnly && !isNewSinceVisit(ioc.dateAdded, baseline)) return false
       if (!matchesType(ioc, filterType)) return false
       if (filterSource !== 'All' && ioc.source !== filterSource) return false
       if (filterConfidence !== 'All' && ioc.confidence !== filterConfidence) return false
@@ -165,7 +219,7 @@ function IocTracker({ onIocCountChange }) {
         .toLowerCase()
         .includes(term)
     })
-  }, [iocs, searchTerm, filterType, filterSource, filterConfidence, filterStatus])
+  }, [iocs, searchTerm, filterType, filterSource, filterConfidence, filterStatus, filterNewOnly])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
 
@@ -223,6 +277,7 @@ function IocTracker({ onIocCountChange }) {
     setFilterSource('All')
     setFilterConfidence('All')
     setFilterStatus('All')
+    setFilterNewOnly(false)
     setPage(1)
   }
 
@@ -299,6 +354,11 @@ function IocTracker({ onIocCountChange }) {
             {totalCount} IOCs from {FEED_COUNT} feeds
             {feedsOnline > 0 && ` (${feedsOnline} online)`}
           </span>
+          {newIocCount > 0 && (
+            <span className="ioc-new-badge" aria-label={`${newIocCount} new IOCs`}>
+              {newIocCount} new
+            </span>
+          )}
         </div>
         <div className="ioc-top-actions">
           {minutesAgo !== null && (
@@ -398,6 +458,13 @@ function IocTracker({ onIocCountChange }) {
             </option>
           ))}
         </select>
+        <button
+          type="button"
+          className={`filter-btn-new ${filterNewOnly ? 'active' : ''}`}
+          onClick={() => setFilterNewOnly((v) => !v)}
+        >
+          New
+        </button>
         <button type="button" className="clear-filters-btn" onClick={clearFilters}>
           Clear filters
         </button>
@@ -461,8 +528,26 @@ function IocTracker({ onIocCountChange }) {
                 </tr>
               </thead>
               <tbody>
-                {paginated.map((ioc, index) => (
-                  <tr key={`${ioc.indicator}-${index}`}>
+                {paginated.map((ioc, index) => {
+                  const rowHighlight =
+                    highlightId === ioc.indicator ||
+                    (highlightTerm &&
+                      [
+                        ioc.indicator,
+                        ioc.type,
+                        ioc.ttp,
+                        ioc.malwareFamily,
+                        ioc.source,
+                      ]
+                        .join(' ')
+                        .toLowerCase()
+                        .includes(highlightTerm.toLowerCase()))
+                  return (
+                  <tr
+                    key={`${ioc.indicator}-${index}`}
+                    id={`ioc-row-${encodeURIComponent(ioc.indicator)}`}
+                    className={rowHighlight ? 'search-highlight-flash' : ''}
+                  >
                     <td>
                       <input
                         type="checkbox"
@@ -510,7 +595,8 @@ function IocTracker({ onIocCountChange }) {
                     <td>{ioc.source}</td>
                     <td>{ioc.dateAdded}</td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           </div>

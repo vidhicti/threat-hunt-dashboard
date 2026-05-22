@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import queries from '../data/queries.json'
 
 const CATEGORIES = [
@@ -41,14 +41,23 @@ function exportAllKql() {
   URL.revokeObjectURL(url)
 }
 
-function KqlLibrary() {
+function KqlLibrary({ highlightId, highlightTerm, onHighlightDone }) {
   const [activeCategory, setActiveCategory] = useState('all')
   const [copiedId, setCopiedId] = useState(null)
 
-  const filtered =
-    activeCategory === 'all'
-      ? queries
-      : queries.filter((q) => q.category === activeCategory)
+  const filtered = useMemo(() => {
+    if (activeCategory === 'all') return queries
+    return queries.filter((q) => q.category === activeCategory)
+  }, [activeCategory])
+
+  useEffect(() => {
+    if (!highlightId) return
+    const el = document.getElementById(`query-card-${highlightId}`)
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      onHighlightDone?.()
+    }
+  }, [highlightId, filtered, onHighlightDone])
 
   const copyKql = async (query) => {
     try {
@@ -83,7 +92,11 @@ function KqlLibrary() {
 
       <div className="query-cards">
         {filtered.map((query) => (
-          <article key={query.id} className="query-card">
+          <article
+            key={query.id}
+            id={`query-card-${query.id}`}
+            className={`query-card ${highlightId === query.id ? 'search-highlight-flash' : ''}`}
+          >
             <div className="query-card-header">
               <h3>{query.title}</h3>
               <div className="query-badges">

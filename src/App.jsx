@@ -1,16 +1,29 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import MetricCards from './components/MetricCards'
 import MitreHeatmap from './components/MitreHeatmap'
 import KqlLibrary from './components/KqlLibrary'
 import Hypotheses from './components/Hypotheses'
 import IocTracker from './components/IocTracker'
 import QueryGenerator from './components/QueryGenerator'
+import GlobalSearch from './components/GlobalSearch'
 import techniques from './data/techniques.json'
 import queries from './data/queries.json'
 import hypothesesData from './data/hypotheses.json'
 import localIocs from './data/iocs.json'
 import { fetchAllIOCs, mergeIocLists } from './services/threatIntel'
+import { getCoveragePercent } from './utils/techniqueCoverage'
 import './App.css'
+
+const LAST_VISIT_KEY = 'iocLastVisitTimestamp'
+
+function countNewIocs(iocList) {
+  const baseline = localStorage.getItem(LAST_VISIT_KEY) || '1970-01-01'
+  const base = String(baseline).slice(0, 10)
+  return iocList.filter((ioc) => {
+    const added = String(ioc.dateAdded || '').slice(0, 10)
+    return added >= base
+  }).length
+}
 
 const TABS = [
   { id: 'heatmap', label: 'MITRE Heatmap' },
@@ -23,12 +36,12 @@ const TABS = [
 function App() {
   const [activeTab, setActiveTab] = useState('heatmap')
   const [iocCount, setIocCount] = useState(localIocs.length)
+  const [searchIocs, setSearchIocs] = useState(localIocs)
   const [iocsLoading, setIocsLoading] = useState(true)
+  const [newIocCount, setNewIocCount] = useState(0)
+  const [searchHighlight, setSearchHighlight] = useState(null)
 
-  const coveragePercent = useMemo(() => {
-    const covered = techniques.filter((t) => t.coverage !== 'none').length
-    return Math.round((covered / techniques.length) * 100)
-  }, [])
+  const coveragePercent = useMemo(() => getCoveragePercent(), [])
 
   useEffect(() => {
     let cancelled = false
@@ -38,9 +51,13 @@ function App() {
         if (!cancelled) {
           const merged = mergeIocLists(live, localIocs)
           setIocCount(merged.length)
+          setSearchIocs(merged)
         }
       } catch {
-        if (!cancelled) setIocCount(localIocs.length)
+        if (!cancelled) {
+          setIocCount(localIocs.length)
+          setSearchIocs(localIocs)
+        }
       } finally {
         if (!cancelled) setIocsLoading(false)
       }
@@ -50,26 +67,61 @@ function App() {
     }
   }, [])
 
+  useEffect(() => {
+    if (activeTab !== 'iocs' && searchIocs.length > 0) {
+      setNewIocCount(countNewIocs(searchIocs))
+    }
+  }, [searchIocs, activeTab])
+
+  useEffect(() => {
+    if (activeTab === 'iocs') {
+      localStorage.setItem(LAST_VISIT_KEY, new Date().toISOString())
+      setNewIocCount(0)
+    }
+  }, [activeTab])
+
+  const handleSearchResult = useCallback((result) => {
+    setActiveTab(result.tab)
+    setSearchHighlight({ id: result.id, term: result.term })
+  }, [])
+
+  const clearSearchHighlight = useCallback(() => {
+    setSearchHighlight(null)
+  }, [])
+
   const renderTab = () => {
+    const highlightProps = {
+      highlightId: searchHighlight?.id ?? null,
+      highlightTerm: searchHighlight?.term ?? null,
+      onHighlightDone: clearSearchHighlight,
+    }
+
     switch (activeTab) {
       case 'heatmap':
-        return <MitreHeatmap />
+        return <MitreHeatmap {...highlightProps} />
       case 'kql':
-        return <KqlLibrary />
+        return <KqlLibrary {...highlightProps} />
       case 'hypotheses':
-        return <Hypotheses />
+        return <Hypotheses {...highlightProps} />
       case 'iocs':
-        return <IocTracker onIocCountChange={setIocCount} />
+        return (
+          <IocTracker
+            onIocCountChange={setIocCount}
+            onNewIocCountChange={setNewIocCount}
+            iocTabActive={activeTab === 'iocs'}
+            {...highlightProps}
+          />
+        )
       case 'generator':
         return <QueryGenerator />
       default:
-        return <MitreHeatmap />
+        return <MitreHeatmap {...highlightProps} />
     }
   }
 
   return (
     <div className="app">
-      <header className="app-header">
+      <header className="app-header app-header-with-search">
         <div className="header-brand">
           <span className="brand-icon" aria-hidden="true">
             🛡️
@@ -79,6 +131,7 @@ function App() {
             <p className="header-subtitle">Microsoft Sentinel · MITRE ATT&CK</p>
           </div>
         </div>
+        <GlobalSearch iocs={searchIocs} onResultSelect={handleSearchResult} />
       </header>
 
       <MetricCards
@@ -98,6 +151,9 @@ function App() {
             onClick={() => setActiveTab(tab.id)}
           >
             {tab.label}
+            {tab.id === 'iocs' && newIocCount > 0 && (
+              <span className="tab-new-dot" aria-label={`${newIocCount} new IOCs`} />
+            )}
           </button>
         ))}
       </nav>

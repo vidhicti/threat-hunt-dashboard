@@ -1,6 +1,9 @@
-import { useState, useMemo } from 'react'
-import techniques from '../data/techniques.json'
+import { useState, useMemo, useEffect } from 'react'
 import queries from '../data/queries.json'
+import {
+  getTechniquesWithCoverage,
+  countQueriesForTechnique,
+} from '../utils/techniqueCoverage'
 
 const COVERAGE_COLORS = {
   none: '#484f58',
@@ -26,9 +29,11 @@ const TACTIC_ORDER = [
   'Impact',
 ]
 
-function MitreHeatmap() {
+function MitreHeatmap({ highlightId, onHighlightDone }) {
   const [tooltip, setTooltip] = useState(null)
   const [selectedTech, setSelectedTech] = useState(null)
+
+  const techniques = useMemo(() => getTechniquesWithCoverage(), [])
 
   const grouped = TACTIC_ORDER.map((tactic) => ({
     tactic,
@@ -45,12 +50,28 @@ function MitreHeatmap() {
     )
   }, [selectedTech])
 
+  useEffect(() => {
+    if (!highlightId) return
+    const tech = techniques.find((t) => t.id === highlightId)
+    if (tech) {
+      setSelectedTech(tech)
+      requestAnimationFrame(() => {
+        document
+          .getElementById(`technique-tile-${highlightId}`)
+          ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        onHighlightDone?.()
+      })
+    }
+  }, [highlightId, techniques, onHighlightDone])
+
   const handleTileEnter = (tech, event) => {
     const rect = event.currentTarget.getBoundingClientRect()
+    const count = tech.queryCount ?? countQueriesForTechnique(tech.id)
     setTooltip({
       id: tech.id,
       name: tech.name,
       coverage: tech.coverage,
+      queryCount: count,
       x: rect.left + rect.width / 2,
       y: rect.top,
     })
@@ -81,8 +102,9 @@ function MitreHeatmap() {
                 {techs.map((tech) => (
                   <button
                     key={tech.id}
+                    id={`technique-tile-${tech.id}`}
                     type="button"
-                    className={`technique-tile ${selectedTech?.id === tech.id ? 'selected' : ''}`}
+                    className={`technique-tile ${selectedTech?.id === tech.id ? 'selected' : ''} ${highlightId === tech.id ? 'search-highlight-flash' : ''}`}
                     style={{ backgroundColor: COVERAGE_COLORS[tech.coverage] }}
                     title={`${tech.id} — ${tech.name}`}
                     onClick={() => handleTileClick(tech)}
@@ -108,9 +130,13 @@ function MitreHeatmap() {
             }}
             role="tooltip"
           >
-            <strong>{tooltip.id}</strong>
+            <strong>Technique: {tooltip.id}</strong>
             <span>{tooltip.name}</span>
-            <span className="tooltip-coverage">Coverage: {tooltip.coverage}</span>
+            <span className="tooltip-coverage">
+              Coverage: {tooltip.queryCount} quer
+              {tooltip.queryCount === 1 ? 'y' : 'ies'} · {tooltip.coverage}
+            </span>
+            <span className="tooltip-hint">Click to view queries</span>
           </div>
         )}
       </div>
@@ -147,7 +173,7 @@ function MitreHeatmap() {
                       backgroundColor: COVERAGE_COLORS[selectedTech.coverage],
                     }}
                   >
-                    {selectedTech.coverage}
+                    {selectedTech.coverage} ({selectedTech.queryCount} queries)
                   </span>
                 </dd>
               </div>

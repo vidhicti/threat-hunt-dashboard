@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import staticHypothesesData from '../data/hypotheses.json'
 import queries from '../data/queries.json'
 import {
@@ -173,6 +173,7 @@ function HypothesisCard({
   extraBadges,
   kqlDefaultOpen = false,
   showExport = false,
+  highlightFlash = false,
 }) {
   const expandKey = `${cardKey}-${hyp.id}`
   const isExpanded = expandedId === expandKey || kqlDefaultOpen
@@ -180,7 +181,8 @@ function HypothesisCard({
 
   return (
     <article
-      className="hypothesis-card"
+      id={`hypothesis-card-${hyp.id}`}
+      className={`hypothesis-card ${highlightFlash ? 'search-highlight-flash' : ''}`}
       style={{ borderLeftColor: PRIORITY_BORDER[priority] || PRIORITY_BORDER.medium }}
     >
       <div className="hypothesis-header">
@@ -241,7 +243,7 @@ function HypothesisCard({
   )
 }
 
-function Hypotheses() {
+function Hypotheses({ highlightId, highlightTerm, onHighlightDone }) {
   const [activeTab, setActiveTab] = useState('static')
   const [expandedId, setExpandedId] = useState(null)
   const [groqApiKey, setGroqApiKey] = useState(
@@ -268,6 +270,17 @@ function Hypotheses() {
     () => Object.fromEntries(queries.map((q) => [q.id, q])),
     []
   )
+
+  useEffect(() => {
+    if (!highlightId) return
+    setActiveTab('static')
+    requestAnimationFrame(() => {
+      document
+        .getElementById(`hypothesis-card-${highlightId}`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      onHighlightDone?.()
+    })
+  }, [highlightId, onHighlightDone])
 
   const hasGroqKey = Boolean(groqApiKey.trim())
 
@@ -419,6 +432,7 @@ Focus log source: ${customLogFocus}`
               expandedId={expandedId}
               setExpandedId={setExpandedId}
               queriesById={queriesById}
+              highlightFlash={highlightId === hyp.id}
             />
           ))}
         </div>
