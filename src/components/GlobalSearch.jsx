@@ -53,6 +53,7 @@ function GlobalSearch({ iocs = [], onResultSelect }) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState({ iocs: [], queries: [], hypotheses: [] })
   const [isOpen, setIsOpen] = useState(false)
+  const [mobileExpanded, setMobileExpanded] = useState(false)
   const [loading, setLoading] = useState(false)
   const wrapperRef = useRef(null)
   const inputRef = useRef(null)
@@ -145,7 +146,22 @@ function GlobalSearch({ iocs = [], onResultSelect }) {
   const showPanel = isOpen && query.trim().length > 2
 
   return (
-    <div className="global-search" ref={wrapperRef}>
+    <div
+      className={`global-search ${mobileExpanded ? 'mobile-expanded' : ''}`}
+      ref={wrapperRef}
+    >
+      <button
+        type="button"
+        className="global-search-mobile-toggle"
+        aria-label="Open search"
+        aria-expanded={mobileExpanded}
+        onClick={() => {
+          setMobileExpanded((v) => !v)
+          if (!mobileExpanded) setTimeout(() => inputRef.current?.focus(), 50)
+        }}
+      >
+        ⌕
+      </button>
       <div className="global-search-input-wrap">
         <span className="global-search-icon" aria-hidden="true">
           ⌕
@@ -157,7 +173,10 @@ function GlobalSearch({ iocs = [], onResultSelect }) {
           placeholder="Search IOCs, KQL queries, hypotheses…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          onFocus={() => query.trim().length > 2 && setIsOpen(true)}
+          onFocus={() => {
+            if (query.trim().length > 2) setIsOpen(true)
+            setMobileExpanded(true)
+          }}
           aria-label="Global search"
           aria-expanded={showPanel}
           aria-controls="global-search-results"

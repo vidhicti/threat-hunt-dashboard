@@ -379,7 +379,7 @@ function HypothesisCard({
   return (
     <article
       id={`hypothesis-card-${hyp.id}`}
-      className={`hypothesis-card ${highlightFlash ? 'search-highlight-flash' : ''}`}
+      className={`hypothesis-card hyp-card ${highlightFlash ? 'search-highlight-flash' : ''}`}
       style={{ borderLeftColor: PRIORITY_BORDER[priority] || PRIORITY_BORDER.medium }}
     >
       <div className="hypothesis-header">

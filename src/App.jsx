@@ -17,6 +17,8 @@ import {
   getClosedThisWeek,
   countActiveHypotheses,
 } from './services/huntWorkflow'
+import { useContext } from 'react'
+import { ThreatDataProvider, ThreatDataContext } from './context/ThreatDataContext'
 import './App.css'
 
 const LAST_VISIT_KEY = 'iocLastVisitTimestamp'
@@ -38,7 +40,8 @@ const TABS = [
   { id: 'generator', label: 'KQL Generator' },
 ]
 
-function App() {
+function AppContent() {
+  const { setLiveIOCs, setIocLoaded } = useContext(ThreatDataContext)
   const [activeTab, setActiveTab] = useState('heatmap')
   const [iocCount, setIocCount] = useState(localIocs.length)
   const [searchIocs, setSearchIocs] = useState(localIocs)
@@ -77,11 +80,16 @@ function App() {
           const merged = mergeIocLists(live, localIocs)
           setIocCount(merged.length)
           setSearchIocs(merged)
+          setLiveIOCs(merged)
+          setIocLoaded(true)
         }
       } catch {
         if (!cancelled) {
-          setIocCount(localIocs.length)
-          setSearchIocs(localIocs)
+          const merged = mergeIocLists([], localIocs)
+          setIocCount(merged.length)
+          setSearchIocs(merged)
+          setLiveIOCs(merged)
+          setIocLoaded(true)
         }
       } finally {
         if (!cancelled) setIocsLoading(false)
@@ -209,6 +217,14 @@ function App() {
         </span>
       </footer>
     </div>
+  )
+}
+
+function App() {
+  return (
+    <ThreatDataProvider>
+      <AppContent />
+    </ThreatDataProvider>
   )
 }
 

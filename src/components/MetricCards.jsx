@@ -23,7 +23,7 @@ function MetricCards({
   ]
 
   return (
-    <div className="metric-cards metric-cards-6">
+    <div className="metric-cards metric-cards-6 metrics">
       {cards.map((card) => (
         <div
           key={card.label}

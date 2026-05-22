@@ -1,5 +1,14 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import {
+  useState,
+  useEffect,
+  useMemo,
+  useCallback,
+  useRef,
+  useContext,
+  Fragment,
+} from 'react'
 import localIocs from '../data/iocs.json'
+import { ThreatDataContext } from '../context/ThreatDataContext'
 import {
   fetchAllIOCs,
   generateWatchlistKQL,
@@ -7,8 +16,17 @@ import {
   FEED_COUNT,
   mergeIocLists,
 } from '../services/threatIntel'
+import {
+  enrichIOC,
+  getCachedEnrichment,
+  setCachedEnrichment,
+  countryFlag,
+  truncate,
+  domainAgeDays,
+} from '../services/iocEnrichment'
 
 const PAGE_SIZE = 50
+const ENRICH_DELAY_MS = 300
 
 const STATUS_DOT = {
   active: 'var(--red)',
@@ -23,6 +41,8 @@ const CSV_HEADERS = [
   'Type',
   'TTP',
   'TTP ID',
+  'Country',
+  'ASN/ISP',
   'Malware Family',
   'Log Source',
   'Confidence',
@@ -50,12 +70,15 @@ function normalizeLocalIoc(ioc) {
   }
 }
 
-
 function matchesType(ioc, filterType) {
   if (filterType === 'All') return true
   const t = String(ioc.type || '')
   if (filterType === 'IP') return t === 'IP' || t.toLowerCase().includes('ip')
   return t === filterType
+}
+
+function getEnrichmentFor(ioc, enrichmentMap) {
+  return enrichmentMap[ioc.indicator] || getCachedEnrichment(ioc.indicator)
 }
 
 function LoadingSkeleton() {
@@ -70,6 +93,109 @@ function LoadingSkeleton() {
           <span className="ioc-skeleton-cell long" />
         </div>
       ))}
+    </div>
+  )
+}
+
+function EnrichmentDetailPanel({ ioc, enrichment, enriching, onEnrich }) {
+  if (enriching) {
+    return (
+      <div className="ioc-enrichment-card">
+        <span className="spinner" aria-hidden="true" /> Enriching…
+      </div>
+    )
+  }
+
+  if (!enrichment?.enriched) {
+    return (
+      <div className="ioc-enrichment-card ioc-enrichment-empty">
+        <p>Not enriched yet</p>
+        <button type="button" className="export-btn small" onClick={onEnrich}>
+          Enrich
+        </button>
+      </div>
+    )
+  }
+
+  const type = String(ioc.type || '').toUpperCase()
+
+  if (type === 'IP' || type.includes('IP')) {
+    return (
+      <div className="ioc-enrichment-card">
+        <div className="enrich-header">
+          <span className="enrich-flag">{countryFlag(enrichment.countryCode)}</span>
+          <strong>
+            {enrichment.country}
+            {enrichment.city ? ` · ${enrichment.city}` : ''}
+          </strong>
+        </div>
+        <p>
+          <strong>ISP:</strong> {enrichment.isp || '—'}
+        </p>
+        <p>
+          <strong>Org:</strong> {enrichment.org || '—'}
+        </p>
+        <p>
+          <strong>ASN:</strong> {enrichment.asn || '—'}
+        </p>
+        <div className="enrich-badges">
+          {enrichment.isProxy && <span className="enrich-badge proxy">Proxy/VPN</span>}
+          {enrichment.isHosting && <span className="enrich-badge hosting">Hosting/VPS</span>}
+        </div>
+      </div>
+    )
+  }
+
+  if (type === 'DOMAIN') {
+    const age = domainAgeDays(enrichment.registered)
+    return (
+      <div className="ioc-enrichment-card">
+        <p>
+          <strong>Registered:</strong> {enrichment.registered || '—'}
+        </p>
+        <p>
+          <strong>Updated:</strong> {enrichment.updated || '—'}
+        </p>
+        {age !== null && (
+          <p>
+            <strong>Domain age:</strong> {age} days
+          </p>
+        )}
+      </div>
+    )
+  }
+
+  if (type === 'SHA256' || type.includes('SHA256')) {
+    return (
+      <div className="ioc-enrichment-card">
+        <p>
+          <strong>File:</strong> {enrichment.fileName || '—'} ({enrichment.fileType || '—'})
+        </p>
+        <p>
+          <strong>Size:</strong> {enrichment.fileSize ?? '—'} bytes
+        </p>
+        <p>
+          <strong>Malware family:</strong> {enrichment.malwareFamily || '—'}
+        </p>
+        <p>
+          <strong>First seen:</strong> {enrichment.firstSeen || '—'}
+        </p>
+        {enrichment.tags?.length > 0 && (
+          <div className="tag-pills">
+            {enrichment.tags.map((t) => (
+              <span key={t} className="tag-pill">
+                {t}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="ioc-enrichment-card ioc-enrichment-empty">
+      <p>Enrichment not available for this type</p>
     </div>
   )
 }
@@ -91,6 +217,7 @@ function IocTracker({
   highlightTerm,
   onHighlightDone,
 }) {
+  const { setLiveIOCs, setIocLoaded } = useContext(ThreatDataContext)
   const [iocs, setIocs] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -109,10 +236,17 @@ function IocTracker({
   const [filterConfidence, setFilterConfidence] = useState('All')
   const [filterStatus, setFilterStatus] = useState('All')
   const [filterNewOnly, setFilterNewOnly] = useState(false)
+  const [filterCountry, setFilterCountry] = useState('All')
+  const [filterHosting, setFilterHosting] = useState(false)
+  const [filterProxy, setFilterProxy] = useState(false)
   const [page, setPage] = useState(1)
   const [generatedKQL, setGeneratedKQL] = useState('')
   const [showKQLModal, setShowKQLModal] = useState(false)
   const [copyMsg, setCopyMsg] = useState('')
+  const [enrichmentMap, setEnrichmentMap] = useState({})
+  const [enrichingSet, setEnrichingSet] = useState(new Set())
+  const [expandedIndicator, setExpandedIndicator] = useState(null)
+  const [enrichProgress, setEnrichProgress] = useState(null)
 
   const loadIOCs = useCallback(async () => {
     setLoading(true)
@@ -124,12 +258,13 @@ function IocTracker({
     }, 400)
 
     try {
-      const { iocs: live, feedStatus: status, totalCount: count } =
-        await fetchAllIOCs()
+      const { iocs: live, feedStatus: status } = await fetchAllIOCs()
       const merged = mergeIocLists(live, localIocs.map(normalizeLocalIoc))
       setFeedStatus(status)
       setTotalCount(merged.length)
       setIocs(merged)
+      setLiveIOCs(merged)
+      setIocLoaded(true)
       onIocCountChange?.(merged.length)
       const baseline = visitBaselineRef.current
       const newCount = merged.filter((ioc) =>
@@ -139,10 +274,19 @@ function IocTracker({
       onNewIocCountChange?.(newCount)
       setLastUpdated(new Date())
       setLoadProgress(100)
+
+      const cached = {}
+      merged.forEach((ioc) => {
+        const c = getCachedEnrichment(ioc.indicator)
+        if (c) cached[ioc.indicator] = c
+      })
+      setEnrichmentMap((prev) => ({ ...prev, ...cached }))
     } catch (err) {
       setError(err.message || 'Failed to load live IOCs')
       const merged = mergeIocLists([], localIocs.map(normalizeLocalIoc))
       setIocs(merged)
+      setLiveIOCs(merged)
+      setIocLoaded(true)
       setTotalCount(merged.length)
       onIocCountChange?.(merged.length)
       const baseline = visitBaselineRef.current
@@ -159,7 +303,7 @@ function IocTracker({
       setLoading(false)
       setTimeout(() => setLoadProgress(0), 600)
     }
-  }, [onIocCountChange])
+  }, [onIocCountChange, onNewIocCountChange, setLiveIOCs, setIocLoaded])
 
   useEffect(() => {
     loadIOCs()
@@ -167,7 +311,17 @@ function IocTracker({
 
   useEffect(() => {
     setPage(1)
-  }, [searchTerm, filterType, filterSource, filterConfidence, filterStatus, filterNewOnly])
+  }, [
+    searchTerm,
+    filterType,
+    filterSource,
+    filterConfidence,
+    filterStatus,
+    filterNewOnly,
+    filterCountry,
+    filterHosting,
+    filterProxy,
+  ])
 
   useEffect(() => {
     if (!iocTabActive) return
@@ -180,13 +334,54 @@ function IocTracker({
     if (!highlightId && !highlightTerm) return
     if (highlightTerm) setSearchTerm(highlightTerm)
     requestAnimationFrame(() => {
-      const row = document.getElementById(
-        `ioc-row-${encodeURIComponent(highlightId)}`
-      )
-      row?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      document
+        .getElementById(`ioc-row-${encodeURIComponent(highlightId)}`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
       onHighlightDone?.()
     })
   }, [highlightId, highlightTerm, onHighlightDone, iocs.length])
+
+  const countryOptions = useMemo(() => {
+    const countries = new Set()
+    iocs.forEach((ioc) => {
+      const e = getEnrichmentFor(ioc, enrichmentMap)
+      if (e?.country) countries.add(e.country)
+    })
+    return ['All', ...[...countries].sort()]
+  }, [iocs, enrichmentMap])
+
+  const runEnrich = useCallback(async (ioc) => {
+    const key = ioc.indicator
+    setEnrichingSet((prev) => new Set(prev).add(key))
+    try {
+      let data = getCachedEnrichment(key)
+      if (!data?.enriched) {
+        data = await enrichIOC(ioc)
+        if (data?.enriched) setCachedEnrichment(key, data)
+      }
+      setEnrichmentMap((prev) => ({ ...prev, [key]: data }))
+    } finally {
+      setEnrichingSet((prev) => {
+        const next = new Set(prev)
+        next.delete(key)
+        return next
+      })
+    }
+  }, [])
+
+  const enrichSelected = async () => {
+    const list = iocs.filter((i) => selectedIOCs.has(i.indicator))
+    if (!list.length) return
+    setEnrichProgress({ current: 0, total: list.length })
+    for (let i = 0; i < list.length; i++) {
+      setEnrichProgress({ current: i + 1, total: list.length })
+      await runEnrich(list[i])
+      if (i < list.length - 1) {
+        await new Promise((r) => setTimeout(r, ENRICH_DELAY_MS))
+      }
+    }
+    setEnrichProgress(null)
+  }
 
   const sourceOptions = useMemo(
     () => ['All', ...Object.values(FEED_LABELS), 'Threat Intel Feed', 'Hunt Finding Q005'],
@@ -202,6 +397,12 @@ function IocTracker({
       if (filterSource !== 'All' && ioc.source !== filterSource) return false
       if (filterConfidence !== 'All' && ioc.confidence !== filterConfidence) return false
       if (filterStatus !== 'All' && ioc.status !== filterStatus) return false
+
+      const enrich = getEnrichmentFor(ioc, enrichmentMap)
+      if (filterCountry !== 'All' && enrich?.country !== filterCountry) return false
+      if (filterHosting && !enrich?.isHosting) return false
+      if (filterProxy && !enrich?.isProxy) return false
+
       if (!term) return true
       return [
         ioc.indicator,
@@ -209,17 +410,26 @@ function IocTracker({
         ioc.ttp,
         ioc.ttpId,
         ioc.source,
-        ioc.logSource,
-        ioc.confidence,
-        ioc.status,
-        ioc.malwareFamily,
-        ioc.dateAdded,
+        enrich?.country,
+        enrich?.org,
       ]
         .join(' ')
         .toLowerCase()
         .includes(term)
     })
-  }, [iocs, searchTerm, filterType, filterSource, filterConfidence, filterStatus, filterNewOnly])
+  }, [
+    iocs,
+    searchTerm,
+    filterType,
+    filterSource,
+    filterConfidence,
+    filterStatus,
+    filterNewOnly,
+    filterCountry,
+    filterHosting,
+    filterProxy,
+    enrichmentMap,
+  ])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
 
@@ -262,11 +472,8 @@ function IocTracker({
     const allSelected = visible.every((id) => selectedIOCs.has(id))
     setSelectedIOCs((prev) => {
       const next = new Set(prev)
-      if (allSelected) {
-        visible.forEach((id) => next.delete(id))
-      } else {
-        visible.forEach((id) => next.add(id))
-      }
+      if (allSelected) visible.forEach((id) => next.delete(id))
+      else visible.forEach((id) => next.add(id))
       return next
     })
   }
@@ -278,6 +485,9 @@ function IocTracker({
     setFilterConfidence('All')
     setFilterStatus('All')
     setFilterNewOnly(false)
+    setFilterCountry('All')
+    setFilterHosting(false)
+    setFilterProxy(false)
     setPage(1)
   }
 
@@ -292,12 +502,15 @@ function IocTracker({
     const rows = filtered.length ? filtered : iocs
     const lines = [
       CSV_HEADERS.join(','),
-      ...rows.map((ioc) =>
-        [
+      ...rows.map((ioc) => {
+        const e = getEnrichmentFor(ioc, enrichmentMap)
+        return [
           ioc.indicator,
           ioc.type,
           ioc.ttp,
           ioc.ttpId,
+          e?.country || '',
+          e?.org || e?.isp || '',
           ioc.malwareFamily,
           ioc.logSource,
           ioc.confidence,
@@ -307,7 +520,7 @@ function IocTracker({
         ]
           .map(escapeCsv)
           .join(',')
-      ),
+      }),
     ]
     const blob = new Blob([lines.join('\n')], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)
@@ -341,9 +554,11 @@ function IocTracker({
     }
   }
 
+  const COL_COUNT = 13
+
   return (
     <div className="ioc-tracker ioc-tracker-live">
-      <div className="ioc-top-bar">
+      <div className="ioc-top-bar topbar">
         <div className="ioc-title-group">
           <h2>IOC Tracker</h2>
           <span className="live-badge">
@@ -393,11 +608,14 @@ function IocTracker({
           <p className="ioc-loading-msg">
             Fetching from {FEED_COUNT} threat intel feeds…
           </p>
-          <div className="ioc-progress-track" role="progressbar" aria-valuenow={loadProgress} aria-valuemin={0} aria-valuemax={100}>
-            <div
-              className="ioc-progress-bar"
-              style={{ width: `${loadProgress}%` }}
-            />
+          <div
+            className="ioc-progress-track"
+            role="progressbar"
+            aria-valuenow={loadProgress}
+            aria-valuemin={0}
+            aria-valuemax={100}
+          >
+            <div className="ioc-progress-bar" style={{ width: `${loadProgress}%` }} />
           </div>
         </div>
       )}
@@ -414,22 +632,14 @@ function IocTracker({
           aria-label="Search IOCs"
           disabled={loading && iocs.length === 0}
         />
-        <select
-          value={filterType}
-          onChange={(e) => setFilterType(e.target.value)}
-          aria-label="Filter by type"
-        >
+        <select value={filterType} onChange={(e) => setFilterType(e.target.value)} aria-label="Filter by type">
           {TYPE_OPTIONS.map((t) => (
             <option key={t} value={t}>
               Type: {t}
             </option>
           ))}
         </select>
-        <select
-          value={filterSource}
-          onChange={(e) => setFilterSource(e.target.value)}
-          aria-label="Filter by source"
-        >
+        <select value={filterSource} onChange={(e) => setFilterSource(e.target.value)} aria-label="Filter by source">
           {sourceOptions.map((s) => (
             <option key={s} value={s}>
               Source: {s}
@@ -447,17 +657,38 @@ function IocTracker({
             </option>
           ))}
         </select>
-        <select
-          value={filterStatus}
-          onChange={(e) => setFilterStatus(e.target.value)}
-          aria-label="Filter by status"
-        >
+        <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} aria-label="Filter by status">
           {['All', 'active', 'investigating', 'watchlist'].map((s) => (
             <option key={s} value={s}>
               Status: {s}
             </option>
           ))}
         </select>
+        <select
+          value={filterCountry}
+          onChange={(e) => setFilterCountry(e.target.value)}
+          aria-label="Filter by country"
+        >
+          {countryOptions.map((c) => (
+            <option key={c} value={c}>
+              Country: {c}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          className={`filter-toggle-btn ${filterHosting ? 'active' : ''}`}
+          onClick={() => setFilterHosting((v) => !v)}
+        >
+          Hosting/VPS
+        </button>
+        <button
+          type="button"
+          className={`filter-toggle-btn ${filterProxy ? 'active' : ''}`}
+          onClick={() => setFilterProxy((v) => !v)}
+        >
+          Proxy/VPN
+        </button>
         <button
           type="button"
           className={`filter-btn-new ${filterNewOnly ? 'active' : ''}`}
@@ -470,29 +701,29 @@ function IocTracker({
         </button>
       </div>
 
-      <div className="ioc-stats-row ioc-stats-row-6">
-        <div className="ioc-stat-card">
-          <span className="ioc-stat-value">{stats.total}</span>
+      <div className="ioc-stats-row ioc-stats-row-6 metrics">
+        <div className="ioc-stat-card metric-card">
+          <span className="ioc-stat-value metric-val">{stats.total}</span>
           <span className="ioc-stat-label">Total</span>
         </div>
-        <div className="ioc-stat-card">
-          <span className="ioc-stat-value">{stats.ips}</span>
+        <div className="ioc-stat-card metric-card">
+          <span className="ioc-stat-value metric-val">{stats.ips}</span>
           <span className="ioc-stat-label">IPs</span>
         </div>
-        <div className="ioc-stat-card">
-          <span className="ioc-stat-value">{stats.domainsUrls}</span>
+        <div className="ioc-stat-card metric-card">
+          <span className="ioc-stat-value metric-val">{stats.domainsUrls}</span>
           <span className="ioc-stat-label">Domains/URLs</span>
         </div>
-        <div className="ioc-stat-card">
-          <span className="ioc-stat-value">{stats.hashes}</span>
+        <div className="ioc-stat-card metric-card">
+          <span className="ioc-stat-value metric-val">{stats.hashes}</span>
           <span className="ioc-stat-label">Hashes</span>
         </div>
-        <div className="ioc-stat-card">
-          <span className="ioc-stat-value">{stats.active}</span>
+        <div className="ioc-stat-card metric-card">
+          <span className="ioc-stat-value metric-val">{stats.active}</span>
           <span className="ioc-stat-label">Active</span>
         </div>
-        <div className="ioc-stat-card">
-          <span className="ioc-stat-value">{stats.today}</span>
+        <div className="ioc-stat-card metric-card">
+          <span className="ioc-stat-value metric-val">{stats.today}</span>
           <span className="ioc-stat-label">Today</span>
         </div>
       </div>
@@ -505,7 +736,7 @@ function IocTracker({
             <table className="ioc-table">
               <thead>
                 <tr>
-                  <th>
+                  <th className="col-check">
                     <input
                       type="checkbox"
                       checked={
@@ -516,85 +747,140 @@ function IocTracker({
                       aria-label="Select all on this page"
                     />
                   </th>
-                  <th>Indicator</th>
-                  <th>Type</th>
-                  <th>TTP</th>
-                  <th>Malware Family</th>
-                  <th>Log Source</th>
-                  <th>Confidence</th>
-                  <th>Status</th>
-                  <th>Source</th>
-                  <th>Date Added</th>
+                  <th className="col-indicator">Indicator</th>
+                  <th className="col-type">Type</th>
+                  <th className="col-ttp">TTP</th>
+                  <th className="col-malware">Malware</th>
+                  <th className="col-country">Country</th>
+                  <th className="col-asn">ASN/ISP</th>
+                  <th className="col-log">Log Source</th>
+                  <th className="col-conf">Conf.</th>
+                  <th className="col-status">Status</th>
+                  <th className="col-source">Source</th>
+                  <th className="col-date">Date</th>
+                  <th className="col-enrich" />
                 </tr>
               </thead>
               <tbody>
                 {paginated.map((ioc, index) => {
+                  const enrich = getEnrichmentFor(ioc, enrichmentMap)
+                  const isEnriching = enrichingSet.has(ioc.indicator)
+                  const isEnriched = enrich?.enriched
                   const rowHighlight =
                     highlightId === ioc.indicator ||
                     (highlightTerm &&
-                      [
-                        ioc.indicator,
-                        ioc.type,
-                        ioc.ttp,
-                        ioc.malwareFamily,
-                        ioc.source,
-                      ]
+                      [ioc.indicator, ioc.type, ioc.ttp, ioc.malwareFamily, ioc.source]
                         .join(' ')
                         .toLowerCase()
                         .includes(highlightTerm.toLowerCase()))
+                  const isExpanded = expandedIndicator === ioc.indicator
+                  const isIP =
+                    String(ioc.type || '').toUpperCase() === 'IP' ||
+                    String(ioc.type || '').toLowerCase().includes('ip')
+
                   return (
-                  <tr
-                    key={`${ioc.indicator}-${index}`}
-                    id={`ioc-row-${encodeURIComponent(ioc.indicator)}`}
-                    className={rowHighlight ? 'search-highlight-flash' : ''}
-                  >
-                    <td>
-                      <input
-                        type="checkbox"
-                        checked={selectedIOCs.has(ioc.indicator)}
-                        onChange={() => toggleSelect(ioc.indicator)}
-                        aria-label={`Select ${ioc.indicator}`}
-                      />
-                    </td>
-                    <td className="indicator-cell" title={ioc.indicator}>
-                      {ioc.indicator}
-                    </td>
-                    <td>
-                      <span className="type-badge">{ioc.type}</span>
-                    </td>
-                    <td>
-                      <span className="ttp-cell">
-                        {ioc.ttpId || ioc.ttp}
-                        {ioc.ttpId && <small>{ioc.ttp}</small>}
-                      </span>
-                    </td>
-                    <td className="malware-cell" title={ioc.malwareFamily}>
-                      {ioc.malwareFamily || '—'}
-                    </td>
-                    <td>{ioc.logSource}</td>
-                    <td>
-                      <span
-                        className={`confidence-${(ioc.confidence || '').toLowerCase()}`}
+                    <Fragment key={`${ioc.indicator}-${index}`}>
+                      <tr
+                        id={`ioc-row-${encodeURIComponent(ioc.indicator)}`}
+                        className={`${rowHighlight ? 'search-highlight-flash' : ''} ${isExpanded ? 'ioc-row-expanded' : ''}`}
                       >
-                        {ioc.confidence}
-                      </span>
-                    </td>
-                    <td>
-                      <span className="status-cell">
-                        <span
-                          className="status-dot"
-                          style={{
-                            backgroundColor:
-                              STATUS_DOT[ioc.status] || 'var(--text-muted)',
-                          }}
-                          aria-hidden="true"
-                        />
-                        {ioc.status}
-                      </span>
-                    </td>
-                    <td>{ioc.source}</td>
-                    <td>{ioc.dateAdded}</td>
-                  </tr>
+                        <td>
+                          <input
+                            type="checkbox"
+                            checked={selectedIOCs.has(ioc.indicator)}
+                            onChange={() => toggleSelect(ioc.indicator)}
+                            aria-label={`Select ${ioc.indicator}`}
+                          />
+                        </td>
+                        <td className="indicator-cell">
+                          <button
+                            type="button"
+                            className="indicator-link"
+                            title={ioc.indicator}
+                            onClick={() =>
+                              setExpandedIndicator(isExpanded ? null : ioc.indicator)
+                            }
+                          >
+                            {ioc.indicator}
+                          </button>
+                        </td>
+                        <td>
+                          <span className="type-badge">{ioc.type}</span>
+                        </td>
+                        <td>
+                          <span className="ttp-cell">
+                            {ioc.ttpId || ioc.ttp}
+                            {ioc.ttpId && <small>{ioc.ttp}</small>}
+                          </span>
+                        </td>
+                        <td className="malware-cell" title={ioc.malwareFamily}>
+                          {ioc.malwareFamily || '—'}
+                        </td>
+                        <td className="col-country">
+                          {isIP && isEnriched && enrich.country ? (
+                            <span title={enrich.country}>
+                              {countryFlag(enrich.countryCode)} {enrich.country}
+                            </span>
+                          ) : (
+                            '—'
+                          )}
+                        </td>
+                        <td className="col-asn" title={enrich?.org}>
+                          {isIP && isEnriched ? truncate(enrich.org || enrich.isp, 20) : '—'}
+                        </td>
+                        <td>{ioc.logSource}</td>
+                        <td>
+                          <span className={`confidence-${(ioc.confidence || '').toLowerCase()}`}>
+                            {ioc.confidence}
+                          </span>
+                        </td>
+                        <td>
+                          <span className="status-cell">
+                            <span
+                              className="status-dot"
+                              style={{
+                                backgroundColor:
+                                  STATUS_DOT[ioc.status] || 'var(--text-muted)',
+                              }}
+                              aria-hidden="true"
+                            />
+                            {ioc.status}
+                          </span>
+                        </td>
+                        <td>{ioc.source}</td>
+                        <td>{ioc.dateAdded}</td>
+                        <td>
+                          <button
+                            type="button"
+                            className={`enrich-btn ${isEnriched ? 'enriched' : ''}`}
+                            onClick={() => runEnrich(ioc)}
+                            disabled={isEnriching}
+                            aria-label={isEnriched ? 'Enriched' : 'Enrich IOC'}
+                            title={isEnriched ? 'Enriched' : 'Enrich'}
+                          >
+                            {isEnriching ? (
+                              <span className="spinner enrich-spinner" aria-hidden="true" />
+                            ) : isEnriched ? (
+                              '✓'
+                            ) : (
+                              '🔍'
+                            )}
+                          </button>
+                        </td>
+                      </tr>
+                      {isExpanded && (
+                        <tr key={`${ioc.indicator}-detail`} className="ioc-detail-row">
+                          <td colSpan={COL_COUNT}>
+                            <EnrichmentDetailPanel
+                              ioc={ioc}
+                              enrichment={enrich}
+                              enriching={isEnriching}
+                              onEnrich={() => runEnrich(ioc)}
+                            />
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
                   )
                 })}
               </tbody>
@@ -633,8 +919,21 @@ function IocTracker({
 
       <div className="ioc-bottom-bar">
         <span className="selected-count">{selectedIOCs.size} selected</span>
+        {enrichProgress && (
+          <span className="enrich-progress">
+            Enriching {enrichProgress.current}/{enrichProgress.total}…
+          </span>
+        )}
         {copyMsg && <span className="copy-feedback">{copyMsg}</span>}
         <div className="ioc-bottom-actions">
+          <button
+            type="button"
+            className="export-btn"
+            disabled={selectedIOCs.size === 0 || enrichingSet.size > 0}
+            onClick={enrichSelected}
+          >
+            Enrich Selected
+          </button>
           <button
             type="button"
             className="export-btn"
