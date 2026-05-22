@@ -12,6 +12,11 @@ import hypothesesData from './data/hypotheses.json'
 import localIocs from './data/iocs.json'
 import { fetchAllIOCs, mergeIocLists } from './services/threatIntel'
 import { getCoveragePercent } from './utils/techniqueCoverage'
+import {
+  getWorkflowStats,
+  getClosedThisWeek,
+  countActiveHypotheses,
+} from './services/huntWorkflow'
 import './App.css'
 
 const LAST_VISIT_KEY = 'iocLastVisitTimestamp'
@@ -40,8 +45,28 @@ function App() {
   const [iocsLoading, setIocsLoading] = useState(true)
   const [newIocCount, setNewIocCount] = useState(0)
   const [searchHighlight, setSearchHighlight] = useState(null)
+  const [workflowRevision, setWorkflowRevision] = useState(0)
 
   const coveragePercent = useMemo(() => getCoveragePercent(), [])
+
+  const workflowStats = useMemo(() => {
+    void workflowRevision
+    return getWorkflowStats()
+  }, [workflowRevision])
+
+  const activeHypCount = useMemo(() => {
+    void workflowRevision
+    return countActiveHypotheses(hypothesesData.map((h) => h.id))
+  }, [workflowRevision])
+
+  const closedThisWeek = useMemo(() => {
+    void workflowRevision
+    return getClosedThisWeek()
+  }, [workflowRevision])
+
+  const handleWorkflowChange = useCallback(() => {
+    setWorkflowRevision((r) => r + 1)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -102,7 +127,9 @@ function App() {
       case 'kql':
         return <KqlLibrary {...highlightProps} />
       case 'hypotheses':
-        return <Hypotheses {...highlightProps} />
+        return (
+          <Hypotheses {...highlightProps} onWorkflowChange={handleWorkflowChange} />
+        )
       case 'iocs':
         return (
           <IocTracker
@@ -140,22 +167,36 @@ function App() {
         hypotheses={hypothesesData.length}
         iocsTracked={iocsLoading ? '…' : iocCount}
         coveragePercent={coveragePercent}
+        activeHunts={workflowStats.inProgress}
+        closedThisWeek={closedThisWeek}
       />
 
       <nav className="tab-nav" aria-label="Dashboard sections">
-        {TABS.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            className={`tab-btn ${activeTab === tab.id ? 'active' : ''}`}
-            onClick={() => setActiveTab(tab.id)}
-          >
-            {tab.label}
-            {tab.id === 'iocs' && newIocCount > 0 && (
-              <span className="tab-new-dot" aria-label={`${newIocCount} new IOCs`} />
-            )}
-          </button>
-        ))}
+        {TABS.map((tab) => {
+          const label =
+            tab.id === 'hypotheses' && activeHypCount > 0
+              ? `Hypotheses (${activeHypCount} active)`
+              : tab.label
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              className={`tab-btn ${activeTab === tab.id ? 'active' : ''}`}
+              onClick={() => setActiveTab(tab.id)}
+            >
+              {label}
+              {tab.id === 'iocs' && newIocCount > 0 && (
+                <span className="tab-new-dot" aria-label={`${newIocCount} new IOCs`} />
+              )}
+              {tab.id === 'hypotheses' && workflowStats.inProgress > 0 && (
+                <span
+                  className="tab-progress-dot"
+                  aria-label={`${workflowStats.inProgress} in progress`}
+                />
+              )}
+            </button>
+          )
+        })}
       </nav>
 
       <main className="tab-content">{renderTab()}</main>

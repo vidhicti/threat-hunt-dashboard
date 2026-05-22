@@ -6,6 +6,12 @@ import {
   generateHypothesisFromActor,
   generateCustomHypothesis,
 } from '../services/hypothesisGenerator'
+import {
+  getHypothesisWorkflow,
+  updateHypothesisStatus,
+  updateHypothesisFields,
+  computeStatsForHypotheses,
+} from '../services/huntWorkflow'
 
 const PRIORITY_BORDER = {
   critical: 'var(--red)',
@@ -26,6 +32,22 @@ const QUICK_SUGGESTIONS = [
 ]
 
 const PRIORITY_OPTIONS = ['Critical', 'High', 'Medium', 'Low']
+
+const WORKFLOW_STATUSES = [
+  { id: 'open', label: 'Open' },
+  { id: 'in-progress', label: 'In Progress' },
+  { id: 'true-positive', label: 'True Positive' },
+  { id: 'false-positive', label: 'False Positive' },
+  { id: 'closed', label: 'Closed' },
+]
+
+const STATUS_LABELS = {
+  open: 'Open',
+  'in-progress': 'In Progress',
+  'true-positive': 'True Positive ✓',
+  'false-positive': 'False Positive ✗',
+  closed: 'Closed',
+}
 
 const LOG_SOURCE_FOCUS = [
   { value: 'All', label: 'All' },
@@ -77,6 +99,178 @@ function exportHypothesisKql(hyp, queriesById) {
   link.download = `${hyp.id || 'hypothesis'}-kql-queries.txt`
   link.click()
   URL.revokeObjectURL(url)
+}
+
+function exportHuntReport(allHypotheses) {
+  const stats = computeStatsForHypotheses(allHypotheses)
+  const generated = new Date().toLocaleString()
+  let md = `# Threat Hunt Report\nGenerated: ${generated}\n\n`
+  md += `## Summary\n| Status | Count |\n|--------|-------|\n`
+  md += `| Open | ${stats.open} |\n`
+  md += `| In Progress | ${stats.inProgress} |\n`
+  md += `| True Positive | ${stats.truePositive} |\n`
+  md += `| False Positive | ${stats.falsePositive} |\n`
+  md += `| Closed | ${stats.closed} |\n\n`
+  md += `## Hypotheses Detail\n`
+  allHypotheses.forEach((hyp) => {
+    const w = getHypothesisWorkflow(hyp.id)
+    const priority = (hyp.priority || 'medium').replace(/^./, (c) => c.toUpperCase())
+    md += `### ${hyp.id} - ${hyp.title}\n`
+    md += `**Priority:** ${priority}  \n`
+    md += `**Status:** ${STATUS_LABELS[w.status] || w.status}  \n`
+    md += `**Analyst:** ${w.analyst || '—'}  \n`
+    md += `**Tactic Chain:** ${formatTacticChain(hyp.tacticChain)}  \n`
+    md += `**Description:** ${hyp.description || '—'}  \n`
+    md += `**Notes:** ${w.notes || '—'}  \n`
+    md += `**Last Updated:** ${w.updatedAt ? new Date(w.updatedAt).toLocaleString() : '—'}  \n\n---\n\n`
+  })
+  const blob = new Blob([md], { type: 'text/markdown' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `threat-hunt-report-${new Date().toISOString().slice(0, 10)}.md`
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+function WorkflowStatusBadge({ status }) {
+  const s = status || 'open'
+  return (
+    <span className={`workflow-status-badge workflow-${s}`}>
+      {STATUS_LABELS[s] || 'Open'}
+    </span>
+  )
+}
+
+function WorkflowPanel({ hypId, onWorkflowChange, refreshKey = 0 }) {
+  const workflow = getHypothesisWorkflow(hypId)
+  const [analyst, setAnalyst] = useState(workflow.analyst)
+  const [notes, setNotes] = useState(workflow.notes)
+  const [showHistory, setShowHistory] = useState(false)
+
+  useEffect(() => {
+    const w = getHypothesisWorkflow(hypId)
+    setAnalyst(w.analyst)
+    setNotes(w.notes)
+  }, [hypId, refreshKey])
+
+  const handleStatus = (status) => {
+    updateHypothesisStatus(hypId, status, notes, analyst)
+    onWorkflowChange?.()
+  }
+
+  const handleBlurSave = () => {
+    updateHypothesisFields(hypId, notes, analyst)
+    onWorkflowChange?.()
+  }
+
+  const history = [...(workflow.history || [])].reverse()
+
+  return (
+    <div className="workflow-panel">
+      <div className="workflow-status-row">
+        {WORKFLOW_STATUSES.map((opt) => (
+          <button
+            key={opt.id}
+            type="button"
+            className={`workflow-status-btn ${workflow.status === opt.id ? 'active' : ''}`}
+            onClick={() => handleStatus(opt.id)}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+      <div className="workflow-fields-row">
+        <input
+          type="text"
+          className="workflow-analyst-input"
+          placeholder="Analyst name"
+          value={analyst}
+          onChange={(e) => setAnalyst(e.target.value)}
+          onBlur={handleBlurSave}
+        />
+        <textarea
+          className="workflow-notes-input"
+          rows={3}
+          placeholder="Investigation notes..."
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          onBlur={handleBlurSave}
+        />
+      </div>
+      <button
+        type="button"
+        className="workflow-history-toggle"
+        onClick={() => setShowHistory((v) => !v)}
+      >
+        {showHistory ? '▼ Hide History' : '▶ Show History'}
+        {history.length > 0 && ` (${history.length})`}
+      </button>
+      {showHistory && (
+        <ul className="workflow-history-timeline">
+          {history.length === 0 ? (
+            <li className="workflow-history-empty">No status changes yet.</li>
+          ) : (
+            history.map((entry, i) => (
+              <li key={`${entry.timestamp}-${i}`} className="workflow-history-item">
+                <WorkflowStatusBadge status={entry.status} />
+                <span className="workflow-history-time">
+                  {new Date(entry.timestamp).toLocaleString()}
+                </span>
+                {entry.analyst && (
+                  <span className="workflow-history-analyst">{entry.analyst}</span>
+                )}
+                {entry.notes && (
+                  <p className="workflow-history-notes">{entry.notes}</p>
+                )}
+              </li>
+            ))
+          )}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+function WorkflowStatsBar({ stats, statusFilter, onFilterChange }) {
+  const cards = [
+    { id: 'open', label: 'Open', count: stats.open, className: 'wf-stat-open' },
+    { id: 'in-progress', label: 'In Progress', count: stats.inProgress, className: 'wf-stat-progress' },
+    { id: 'true-positive', label: 'True Positive', count: stats.truePositive, className: 'wf-stat-tp' },
+    { id: 'false-positive', label: 'False Positive', count: stats.falsePositive, className: 'wf-stat-fp' },
+    { id: 'closed', label: 'Closed', count: stats.closed, className: 'wf-stat-closed' },
+  ]
+
+  return (
+    <div className="workflow-stats-bar">
+      {cards.map((card) => (
+        <button
+          key={card.id}
+          type="button"
+          className={`workflow-stat-card ${card.className} ${statusFilter === card.id ? 'active' : ''}`}
+          onClick={() => onFilterChange(statusFilter === card.id ? null : card.id)}
+        >
+          <span className="workflow-stat-count">{card.count}</span>
+          <span className="workflow-stat-label">{card.label}</span>
+        </button>
+      ))}
+      <button
+        type="button"
+        className={`workflow-stat-all ${statusFilter === null ? 'active' : ''}`}
+        onClick={() => onFilterChange(null)}
+      >
+        All
+      </button>
+    </div>
+  )
+}
+
+function filterByWorkflowStatus(list, statusFilter) {
+  if (!statusFilter) return list
+  return list.filter((hyp) => {
+    const status = getHypothesisWorkflow(hyp.id).status || 'open'
+    return status === statusFilter
+  })
 }
 
 function KqlQueryBlock({ query, copiedKey, onCopy }) {
@@ -174,10 +368,13 @@ function HypothesisCard({
   kqlDefaultOpen = false,
   showExport = false,
   highlightFlash = false,
+  onWorkflowChange,
+  workflowTick = 0,
 }) {
   const expandKey = `${cardKey}-${hyp.id}`
   const isExpanded = expandedId === expandKey || kqlDefaultOpen
   const priority = hyp.priority || 'medium'
+  const workflow = getHypothesisWorkflow(hyp.id)
 
   return (
     <article
@@ -186,9 +383,12 @@ function HypothesisCard({
       style={{ borderLeftColor: PRIORITY_BORDER[priority] || PRIORITY_BORDER.medium }}
     >
       <div className="hypothesis-header">
-        <span className="hypothesis-id">{hyp.id}</span>
-        <span className={`priority-pill priority-${priority}`}>{priority}</span>
-        {extraBadges}
+        <div className="hypothesis-header-left">
+          <span className="hypothesis-id">{hyp.id}</span>
+          <span className={`priority-pill priority-${priority}`}>{priority}</span>
+          {extraBadges}
+        </div>
+        <WorkflowStatusBadge status={workflow.status} />
       </div>
       <h3>{hyp.title}</h3>
       <p className="tactic-chain">
@@ -239,11 +439,16 @@ function HypothesisCard({
         queriesById={queriesById}
         defaultOpen={kqlDefaultOpen}
       />
+      <WorkflowPanel
+        hypId={hyp.id}
+        onWorkflowChange={onWorkflowChange}
+        refreshKey={workflowTick}
+      />
     </article>
   )
 }
 
-function Hypotheses({ highlightId, highlightTerm, onHighlightDone }) {
+function Hypotheses({ highlightId, highlightTerm, onHighlightDone, onWorkflowChange }) {
   const [activeTab, setActiveTab] = useState('static')
   const [expandedId, setExpandedId] = useState(null)
   const [groqApiKey, setGroqApiKey] = useState(
@@ -265,6 +470,60 @@ function Hypotheses({ highlightId, highlightTerm, onHighlightDone }) {
   const [customInput, setCustomInput] = useState('')
   const [customPriority, setCustomPriority] = useState('High')
   const [customLogFocus, setCustomLogFocus] = useState('All')
+  const [statusFilter, setStatusFilter] = useState(null)
+  const [workflowTick, setWorkflowTick] = useState(0)
+
+  const handleWorkflowChange = useCallback(() => {
+    setWorkflowTick((t) => t + 1)
+    onWorkflowChange?.()
+  }, [onWorkflowChange])
+
+  const allHypothesesForExport = useMemo(
+    () => [
+      ...staticHypothesesData,
+      ...liveHypotheses,
+      ...(customResult ? [customResult] : []),
+      ...customHypotheses,
+    ],
+    [liveHypotheses, customHypotheses, customResult]
+  )
+
+  const staticFiltered = useMemo(() => {
+    void workflowTick
+    return filterByWorkflowStatus(staticHypothesesData, statusFilter)
+  }, [statusFilter, workflowTick])
+
+  const liveFiltered = useMemo(() => {
+    void workflowTick
+    return filterByWorkflowStatus(liveHypotheses, statusFilter)
+  }, [liveHypotheses, statusFilter, workflowTick])
+
+  const customListFiltered = useMemo(() => {
+    void workflowTick
+    const list = [
+      ...(customResult ? [customResult] : []),
+      ...customHypotheses,
+    ]
+    return filterByWorkflowStatus(list, statusFilter)
+  }, [customHypotheses, customResult, statusFilter, workflowTick])
+
+  const staticStats = useMemo(() => {
+    void workflowTick
+    return computeStatsForHypotheses(staticHypothesesData)
+  }, [workflowTick])
+
+  const liveStats = useMemo(() => {
+    void workflowTick
+    return computeStatsForHypotheses(liveHypotheses)
+  }, [liveHypotheses, workflowTick])
+
+  const customStats = useMemo(() => {
+    void workflowTick
+    return computeStatsForHypotheses([
+      ...(customResult ? [customResult] : []),
+      ...customHypotheses,
+    ])
+  }, [customHypotheses, customResult, workflowTick])
 
   const queriesById = useMemo(
     () => Object.fromEntries(queries.map((q) => [q.id, q])),
@@ -377,6 +636,13 @@ Focus log source: ${customLogFocus}`
     <div className="hypotheses-page">
       <div className="hyp-top-bar">
         <h2 className="hyp-page-title">Hypotheses</h2>
+        <button
+          type="button"
+          className="export-btn hyp-export-report-btn"
+          onClick={() => exportHuntReport(allHypothesesForExport)}
+        >
+          Export Hunt Report
+        </button>
         <div className="hyp-tab-pills">
           <button
             type="button"
@@ -423,19 +689,31 @@ Focus log source: ${customLogFocus}`
       {error && <div className="hyp-error-alert">{error}</div>}
 
       {activeTab === 'static' && (
-        <div className="hypotheses-list">
-          {staticHypothesesData.map((hyp) => (
-            <HypothesisCard
-              key={hyp.id}
-              hyp={hyp}
-              cardKey="static"
-              expandedId={expandedId}
-              setExpandedId={setExpandedId}
-              queriesById={queriesById}
-              highlightFlash={highlightId === hyp.id}
-            />
-          ))}
-        </div>
+        <>
+          <WorkflowStatsBar
+            stats={staticStats}
+            statusFilter={statusFilter}
+            onFilterChange={setStatusFilter}
+          />
+          <div className="hypotheses-list">
+            {staticFiltered.map((hyp) => (
+              <HypothesisCard
+                key={hyp.id}
+                hyp={hyp}
+                cardKey="static"
+                expandedId={expandedId}
+                setExpandedId={setExpandedId}
+                queriesById={queriesById}
+                highlightFlash={highlightId === hyp.id}
+                onWorkflowChange={handleWorkflowChange}
+                workflowTick={workflowTick}
+              />
+            ))}
+            {staticFiltered.length === 0 && (
+              <p className="hyp-empty-filter">No hypotheses match this status filter.</p>
+            )}
+          </div>
+        </>
       )}
 
       {activeTab === 'live' && (
@@ -519,8 +797,13 @@ Focus log source: ${customLogFocus}`
           {liveHypotheses.length > 0 && (
             <section className="hyp-generated-section">
               <h3>Generated Hypotheses</h3>
+              <WorkflowStatsBar
+                stats={liveStats}
+                statusFilter={statusFilter}
+                onFilterChange={setStatusFilter}
+              />
               <div className="hypotheses-list">
-                {liveHypotheses.map((hyp) => (
+                {liveFiltered.map((hyp) => (
                   <HypothesisCard
                     key={hyp.id}
                     hyp={hyp}
@@ -537,8 +820,13 @@ Focus log source: ${customLogFocus}`
                         <span className="actor-tag">Generated for: {hyp.threatActor}</span>
                       ) : null
                     }
+                    onWorkflowChange={handleWorkflowChange}
+                    workflowTick={workflowTick}
                   />
                 ))}
+                {liveFiltered.length === 0 && (
+                  <p className="hyp-empty-filter">No hypotheses match this status filter.</p>
+                )}
               </div>
             </section>
           )}
@@ -619,6 +907,14 @@ Focus log source: ${customLogFocus}`
             )}
           </section>
 
+          {(customResult || customHypotheses.length > 0) && (
+            <WorkflowStatsBar
+              stats={customStats}
+              statusFilter={statusFilter}
+              onFilterChange={setStatusFilter}
+            />
+          )}
+
           {customResult && (
             <section className="hyp-custom-result">
               <HypothesisCard
@@ -630,6 +926,8 @@ Focus log source: ${customLogFocus}`
                 kqlDefaultOpen
                 showExport
                 extraBadges={<span className="ai-generated-badge">AI Generated</span>}
+                onWorkflowChange={handleWorkflowChange}
+                workflowTick={workflowTick}
               />
               <div className="hyp-custom-result-actions">
                 <button type="button" className="export-btn" onClick={saveCustomResult}>
@@ -658,7 +956,9 @@ Focus log source: ${customLogFocus}`
             <section className="hyp-saved-custom">
               <h3>My Saved Hypotheses</h3>
               <div className="hypotheses-list">
-                {customHypotheses.map((hyp) => (
+                {customListFiltered
+                  .filter((h) => customHypotheses.some((c) => c.id === h.id))
+                  .map((hyp) => (
                   <HypothesisCard
                     key={hyp.id}
                     hyp={hyp}
@@ -671,6 +971,8 @@ Focus log source: ${customLogFocus}`
                       setCustomHypotheses((prev) => prev.filter((h) => h.id !== id))
                     }
                     extraBadges={<span className="ai-generated-badge">AI Generated</span>}
+                    onWorkflowChange={handleWorkflowChange}
+                    workflowTick={workflowTick}
                   />
                 ))}
               </div>
