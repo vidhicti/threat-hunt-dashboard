@@ -6,7 +6,8 @@
     "tacticChain": ["Initial Access", "Execution", "Persistence"],
     "logSources": ["MDE", "SecurityEvents", "OfficeActivity"],
     "description": "An adversary delivers a macro-enabled document via email, executes PowerShell or WScript, and establishes persistence via scheduled task within 24 hours.",
-    "tags": ["phishing", "macro", "powershell", "email"]
+    "tags": ["phishing", "macro", "powershell", "email"],
+    "relatedQueryIds": ["Q01", "Q02", "Q07", "Q09", "Q12", "Q13"]
   },
   {
     "id": "H002",
@@ -15,7 +16,8 @@
     "tacticChain": ["Credential Access", "Lateral Movement", "Discovery"],
     "logSources": ["MDE", "SecurityEvents"],
     "description": "Attacker dumps credentials from LSASS, uses Pass-the-Hash over NTLM (logon type 3), and performs remote discovery before moving to additional hosts.",
-    "tags": ["lsass", "pth", "ntlm", "mimikatz"]
+    "tags": ["lsass", "pth", "ntlm", "mimikatz"],
+    "relatedQueryIds": ["Q28", "Q29", "Q35", "Q36", "Q40", "Q41", "Q42", "Q43"]
   },
   {
     "id": "H003",
@@ -24,7 +26,8 @@
     "tacticChain": ["Defense Evasion", "Impact", "Inhibit Recovery"],
     "logSources": ["SecurityEvents", "MDE"],
     "description": "Shadow copies are deleted via vssadmin, backup services stopped, and mass file encryption follows within a 2-hour window.",
-    "tags": ["ransomware", "vssadmin", "shadow-copy", "encryption"]
+    "tags": ["ransomware", "vssadmin", "shadow-copy", "encryption"],
+    "relatedQueryIds": ["Q27", "Q28", "Q56", "Q58", "Q59", "Q60"]
   },
   {
     "id": "H004",
@@ -33,7 +36,8 @@
     "tacticChain": ["Command and Control", "Exfiltration"],
     "logSources": ["ASimDnsActivity"],
     "description": "Beaconing via long subdomain labels and TXT record queries to the same rare domain from multiple internal hosts indicates DNS-based C2.",
-    "tags": ["dns", "beaconing", "txt", "tunneling"]
+    "tags": ["dns", "beaconing", "txt", "tunneling"],
+    "relatedQueryIds": ["Q52", "Q53", "Q54", "Q55"]
   },
   {
     "id": "H005",
@@ -42,7 +46,8 @@
     "tacticChain": ["Defense Evasion", "Execution"],
     "logSources": ["SecurityEvents"],
     "description": "Sequential use of certutil for download, regsvr32 for execution, and msiexec for silent install suggests staged payload delivery without traditional malware.",
-    "tags": ["lolbin", "certutil", "regsvr32", "msiexec"]
+    "tags": ["lolbin", "certutil", "regsvr32", "msiexec"],
+    "relatedQueryIds": ["Q11", "Q25", "Q26", "Q29"]
   },
   {
     "id": "H006",
@@ -51,7 +56,8 @@
     "tacticChain": ["Collection", "Exfiltration"],
     "logSources": ["TrendMicro", "CommonSecurityLog"],
     "description": "Large outbound transfers exceeding 500MB/hour to rare external IPs correlate with prior archive staging on the same source host.",
-    "tags": ["exfiltration", "firewall", "dlp", "egress"]
+    "tags": ["exfiltration", "firewall", "dlp", "egress"],
+    "relatedQueryIds": ["Q44", "Q45", "Q46", "Q47", "Q48", "Q49"]
   },
   {
     "id": "H007",
@@ -60,7 +66,8 @@
     "tacticChain": ["Persistence", "Privilege Escalation"],
     "logSources": ["SecurityEvents"],
     "description": "A standard user account creates a new local administrator account and adds it to privileged groups outside of normal change windows.",
-    "tags": ["insider", "4720", "4732", "admin"]
+    "tags": ["insider", "4720", "4732", "admin"],
+    "relatedQueryIds": ["Q19", "Q20", "Q21", "Q22"]
   },
   {
     "id": "H008",
@@ -69,6 +76,7 @@
     "tacticChain": ["Credential Access", "Initial Access"],
     "logSources": ["SecurityEvents", "AADSignInLogs"],
     "description": "Low-and-slow failed authentication across many accounts from a single source IP, followed by one successful logon, indicates password spraying.",
-    "tags": ["brute-force", "spray", "4625", "4624"]
+    "tags": ["brute-force", "spray", "4625", "4624"],
+    "relatedQueryIds": ["Q05", "Q06", "Q33", "Q34"]
   }
 ]
