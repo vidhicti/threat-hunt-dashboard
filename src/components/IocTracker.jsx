@@ -1,8 +1,55 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { fetchAllIOCs, generateWatchlistKQL, FEED_LABELS, FEED_COUNT } from '../services/threatIntel'
+import { getCachedEnrichment } from '../services/iocEnrichment'
+import { autoEnrichIPs } from '../services/autoEnrich'
 import localIOCs from '../data/iocs.json'
 
 const PER_PAGE = 50
+
+function mergeCachedEnrichment(iocList) {
+  return iocList.map((ioc) => {
+    const cached = getCachedEnrichment(ioc.indicator)
+    if (!cached) return ioc
+    return {
+      ...ioc,
+      country: cached.country,
+      countryCode: cached.countryCode,
+      city: cached.city,
+      isp: cached.isp,
+      asn: cached.asn,
+      isProxy: cached.isProxy,
+      isHosting: cached.isHosting,
+      enriched: true,
+    }
+  })
+}
+
+function sortIOCs(iocs, column, direction) {
+  return [...iocs].sort((a, b) => {
+    let va = a[column] || ''
+    let vb = b[column] || ''
+    if (column === 'ttp') {
+      va = a.ttpId || a.ttp || ''
+      vb = b.ttpId || b.ttp || ''
+    }
+    if (column === 'confidence') {
+      const order = { High: 3, Medium: 2, Low: 1 }
+      va = order[va] || 0
+      vb = order[vb] || 0
+    }
+    if (column === 'dateAdded') {
+      va = new Date(va).getTime() || 0
+      vb = new Date(vb).getTime() || 0
+    }
+    const cmp = va > vb ? 1 : va < vb ? -1 : 0
+    return direction === 'desc' ? -cmp : cmp
+  })
+}
+
+const countryFlag = (code) =>
+  code
+    ? String.fromCodePoint(...[...code.toUpperCase()].map((c) => 0x1f1e0 + c.charCodeAt(0) - 65))
+    : '—'
 
 export default function IocTracker() {
   const [iocs, setIocs] = useState([])
@@ -20,8 +67,8 @@ export default function IocTracker() {
   const [expandedRow, setExpandedRow] = useState(null)
   const [showKQLModal, setShowKQLModal] = useState(false)
   const [generatedKQL, setGeneratedKQL] = useState('')
-  const [sortBy, setSortBy] = useState('date')
-  const [sortDir, setSortDir] = useState('desc')
+  const [sort, setSort] = useState({ column: 'dateAdded', direction: 'desc' })
+  const [enrichProgress, setEnrichProgress] = useState({ done: 0, total: 0 })
   const [whitelistedIPs, setWhitelistedIPs] = useState(
     JSON.parse(localStorage.getItem('iocWhitelist') || '[]')
   )
@@ -52,17 +99,74 @@ export default function IocTracker() {
       
       // Filter out whitelisted indicators
       const filtered = filteredByConfig.filter(ioc => !whitelistedIPs.includes(ioc.indicator))
-      
-      setIocs(filtered)
+      const withCache = mergeCachedEnrichment(filtered)
+
+      setIocs(withCache)
       setFeedStatus(result?.feedStatus || {})
       setLastUpdated(new Date())
-      window.dispatchEvent(new CustomEvent('iocCountUpdate', { detail: { count: filtered.length } }))
+      window.dispatchEvent(new CustomEvent('iocCountUpdate', { detail: { count: withCache.length } }))
+
+      setTimeout(() => {
+        setEnrichProgress({ done: 0, total: 0 })
+        autoEnrichIPs(
+          withCache,
+          (done, total) => setEnrichProgress({ done, total }),
+          (indicator, data) => {
+            setIocs((prev) =>
+              prev.map((i) =>
+                i.indicator === indicator
+                  ? {
+                      ...i,
+                      country: data.country,
+                      countryCode: data.countryCode,
+                      city: data.city,
+                      isp: data.isp,
+                      asn: data.asn,
+                      isProxy: data.isProxy,
+                      isHosting: data.isHosting,
+                      enriched: true,
+                    }
+                  : i
+              )
+            )
+          }
+        )
+      }, 2000)
     } catch (err) {
       console.error('IOC fetch error:', err)
-      const filtered = localIOCs.filter(ioc => !whitelistedIPs.includes(ioc.indicator))
+      const filtered = mergeCachedEnrichment(
+        localIOCs.filter(ioc => !whitelistedIPs.includes(ioc.indicator))
+      )
       setIocs(filtered)
       setError('Live feeds unavailable - showing cached data')
       window.dispatchEvent(new CustomEvent('iocCountUpdate', { detail: { count: filtered.length } }))
+
+      setTimeout(() => {
+        setEnrichProgress({ done: 0, total: 0 })
+        autoEnrichIPs(
+          filtered,
+          (done, total) => setEnrichProgress({ done, total }),
+          (indicator, data) => {
+            setIocs((prev) =>
+              prev.map((i) =>
+                i.indicator === indicator
+                  ? {
+                      ...i,
+                      country: data.country,
+                      countryCode: data.countryCode,
+                      city: data.city,
+                      isp: data.isp,
+                      asn: data.asn,
+                      isProxy: data.isProxy,
+                      isHosting: data.isHosting,
+                      enriched: true,
+                    }
+                  : i
+              )
+            )
+          }
+        )
+      }, 2000)
     } finally {
       setLoading(false)
     }
@@ -112,33 +216,19 @@ export default function IocTracker() {
     a.click()
   }
 
-  const filtered = iocs.filter(ioc => {
-    const term = search.toLowerCase()
-    if (term && !JSON.stringify(ioc).toLowerCase().includes(term)) return false
-    if (filterType !== 'All' && ioc.type !== filterType) return false
-    if (filterSource !== 'All' && ioc.source !== filterSource) return false
-    if (filterConfidence !== 'All' && ioc.confidence !== filterConfidence) return false
-    if (filterStatus !== 'All' && ioc.status !== filterStatus) return false
-    return true
-  }).sort((a, b) => {
-    let valA, valB
-    if (sortBy === 'date') {
-      valA = new Date(a.dateAdded).getTime() || 0
-      valB = new Date(b.dateAdded).getTime() || 0
-    } else if (sortBy === 'confidence') {
-      const confOrder = { High: 3, Medium: 2, Low: 1 }
-      valA = confOrder[a.confidence] || 0
-      valB = confOrder[b.confidence] || 0
-    } else if (sortBy === 'source') {
-      valA = a.source || ''
-      valB = b.source || ''
-    } else if (sortBy === 'type') {
-      valA = a.type || ''
-      valB = b.type || ''
-    }
-    if (sortDir === 'asc') return valA > valB ? 1 : -1
-    return valA < valB ? 1 : -1
-  })
+  const filtered = sortIOCs(
+    iocs.filter((ioc) => {
+      const term = search.toLowerCase()
+      if (term && !JSON.stringify(ioc).toLowerCase().includes(term)) return false
+      if (filterType !== 'All' && ioc.type !== filterType) return false
+      if (filterSource !== 'All' && ioc.source !== filterSource) return false
+      if (filterConfidence !== 'All' && ioc.confidence !== filterConfidence) return false
+      if (filterStatus !== 'All' && ioc.status !== filterStatus) return false
+      return true
+    }),
+    sort.column,
+    sort.direction
+  )
 
   const totalPages = Math.ceil(filtered.length / PER_PAGE)
   const paginated = filtered.slice((page-1)*PER_PAGE, page*PER_PAGE)
@@ -176,13 +266,38 @@ export default function IocTracker() {
     setPage(1)
   }
 
-  function handleSort(field) {
-    if (sortBy === field) {
-      setSortDir(sortDir === 'asc' ? 'desc' : 'asc')
-    } else {
-      setSortBy(field)
-      setSortDir('desc')
-    }
+  function handleColumnSort(column) {
+    setSort((prev) => {
+      if (prev.column === column) {
+        return { column, direction: prev.direction === 'desc' ? 'asc' : 'desc' }
+      }
+      return { column, direction: 'desc' }
+    })
+    setPage(1)
+  }
+
+  function SortableTh({ label, column }) {
+    const active = sort.column === column
+    const icon = active ? (sort.direction === 'asc' ? ' ▲' : ' ▼') : ' ↕'
+    return (
+      <th
+        onClick={() => handleColumnSort(column)}
+        style={{
+          padding: '8px',
+          textAlign: 'left',
+          color: '#8b949e',
+          fontSize: 10,
+          textTransform: 'uppercase',
+          letterSpacing: '.06em',
+          fontWeight: 500,
+          cursor: 'pointer',
+          userSelect: 'none',
+        }}
+      >
+        {label}
+        <span style={{ color: active ? '#58a6ff' : '#484f58' }}>{icon}</span>
+      </th>
+    )
   }
 
   const confColor = c => c==='High'?'#f85149':c==='Medium'?'#d29922':'#8b949e'
@@ -227,6 +342,25 @@ export default function IocTracker() {
         ))}
       </div>
 
+      {enrichProgress.total > 0 && enrichProgress.done < enrichProgress.total && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 11, color: '#8b949e', marginBottom: 4 }}>
+            Auto-enriching IPs: {enrichProgress.done}/{enrichProgress.total}
+          </div>
+          <div style={{ height: 3, background: '#21262d', borderRadius: 2, overflow: 'hidden' }}>
+            <div
+              style={{
+                height: '100%',
+                width: `${(enrichProgress.done / enrichProgress.total) * 100}%`,
+                background: '#58a6ff',
+                borderRadius: 2,
+                transition: 'width 0.3s ease',
+              }}
+            />
+          </div>
+        </div>
+      )}
+
       <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:8,marginBottom:12}}>
         {[
           ['Total', stats.total, '#58a6ff'],
@@ -257,12 +391,6 @@ export default function IocTracker() {
         <select value={filterStatus} onChange={e=>{setFilterStatus(e.target.value);setPage(1)}} style={{padding:"7px 10px",background:"#161b22",border:"1px solid #30363d",borderRadius:6,color:"#c9d1d9",fontSize:12}}>
           {['All','active','watchlist','investigating'].map(s=><option key={s}>{s}</option>)}
         </select>
-        <select value={sortBy} onChange={e=>handleSort(e.target.value)} style={{padding:"7px 10px",background:"#161b22",border:"1px solid #30363d",borderRadius:6,color:"#c9d1d9",fontSize:12}}>
-          <option value="date">Sort: Date ({sortDir})</option>
-          <option value="confidence">Sort: Confidence ({sortDir})</option>
-          <option value="source">Sort: Source ({sortDir})</option>
-          <option value="type">Sort: Type ({sortDir})</option>
-        </select>
         <button onClick={clearFilters} style={{padding:"7px 10px",background:"#21262d",border:"1px solid #30363d",borderRadius:6,color:"#8b949e",fontSize:12,cursor:"pointer"}}>Clear</button>
       </div>
 
@@ -271,15 +399,16 @@ export default function IocTracker() {
           <thead>
             <tr style={{borderBottom:"1px solid #30363d"}}>
               <th style={{padding:"8px",textAlign:"left",width:32}}><input type="checkbox" checked={paginated.length>0 && paginated.every(i=>selected.has(i.indicator))} onChange={toggleSelectAll} /></th>
-              <th style={{padding:"8px",textAlign:"left",color:"#8b949e",fontSize:10,textTransform:"uppercase",letterSpacing:".06em",fontWeight:500}}>Indicator</th>
-              <th style={{padding:"8px",textAlign:"left",color:"#8b949e",fontSize:10,textTransform:"uppercase",letterSpacing:".06em",fontWeight:500}}>Type</th>
-              <th style={{padding:"8px",textAlign:"left",color:"#8b949e",fontSize:10,textTransform:"uppercase",letterSpacing:".06em",fontWeight:500}}>TTP</th>
+              <SortableTh label="Indicator" column="indicator" />
+              <SortableTh label="Type" column="type" />
+              <th style={{padding:"8px",textAlign:"left",color:"#8b949e",fontSize:10,textTransform:"uppercase",letterSpacing:".06em",fontWeight:500}}>Country</th>
+              <SortableTh label="TTP" column="ttp" />
               <th style={{padding:"8px",textAlign:"left",color:"#8b949e",fontSize:10,textTransform:"uppercase",letterSpacing:".06em",fontWeight:500}}>Malware</th>
               <th style={{padding:"8px",textAlign:"left",color:"#8b949e",fontSize:10,textTransform:"uppercase",letterSpacing:".06em",fontWeight:500}}>Log Source</th>
-              <th style={{padding:"8px",textAlign:"left",color:"#8b949e",fontSize:10,textTransform:"uppercase",letterSpacing:".06em",fontWeight:500}}>Confidence</th>
-              <th style={{padding:"8px",textAlign:"left",color:"#8b949e",fontSize:10,textTransform:"uppercase",letterSpacing:".06em",fontWeight:500}}>Status</th>
-              <th style={{padding:"8px",textAlign:"left",color:"#8b949e",fontSize:10,textTransform:"uppercase",letterSpacing:".06em",fontWeight:500}}>Source</th>
-              <th style={{padding:"8px",textAlign:"left",color:"#8b949e",fontSize:10,textTransform:"uppercase",letterSpacing:".06em",fontWeight:500}}>Date</th>
+              <SortableTh label="Confidence" column="confidence" />
+              <SortableTh label="Status" column="status" />
+              <SortableTh label="Source" column="source" />
+              <SortableTh label="Date" column="dateAdded" />
               <th style={{padding:"8px",textAlign:"left",color:"#8b949e",fontSize:10,textTransform:"uppercase",letterSpacing:".06em",fontWeight:500}}>Actions</th>
             </tr>
           </thead>
@@ -290,6 +419,11 @@ export default function IocTracker() {
                   <td style={{padding:"8px"}} onClick={e=>e.stopPropagation()}><input type="checkbox" checked={selected.has(ioc.indicator)} onChange={()=>toggleSelect(ioc.indicator)} /></td>
                   <td style={{padding:"8px",color:"#58a6ff",maxWidth:180,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontFamily:"monospace",fontSize:11}} title={ioc.indicator}>{ioc.indicator}</td>
                   <td style={{padding:"8px"}}><span style={{fontSize:10,padding:"2px 6px",borderRadius:4,background:"#21262d",color:"#c9d1d9",border:"1px solid #30363d"}}>{ioc.type}</span></td>
+                  <td style={{padding:"8px",fontSize:11,color:"#c9d1d9",whiteSpace:"nowrap"}}>
+                    {ioc.type === 'IP' && ioc.enriched && ioc.countryCode
+                      ? <span title={ioc.country}>{countryFlag(ioc.countryCode)} {ioc.countryCode}</span>
+                      : '—'}
+                  </td>
                   <td style={{padding:"8px",fontSize:11,color:"#c9d1d9",maxWidth:120,overflow:"hidden",textOverflow:"ellipsis"}}>{ioc.ttpId||ioc.ttp}</td>
                   <td style={{padding:"8px",fontSize:11,color:"#8b949e",maxWidth:120,overflow:"hidden",textOverflow:"ellipsis"}}>{ioc.malwareFamily||'—'}</td>
                   <td style={{padding:"8px",fontSize:11,color:"#8b949e"}}>{ioc.logSource}</td>
@@ -307,7 +441,7 @@ export default function IocTracker() {
                 </tr>
                 {expandedRow===i && (
                   <tr key={'exp'+i} style={{background:"#0d1117"}}>
-                    <td colSpan={11} style={{padding:"12px 16px"}}>
+                    <td colSpan={12} style={{padding:"12px 16px"}}>
                       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
                         <div>
                           <div style={{fontSize:11,color:"#8b949e",marginBottom:8,textTransform:"uppercase",letterSpacing:".06em"}}>Full Indicator</div>
@@ -319,6 +453,27 @@ export default function IocTracker() {
                             <div><span style={{color:"#8b949e"}}>Malware:</span> <span style={{color:"#c9d1d9"}}>{ioc.malwareFamily||'Unknown'}</span></div>
                             <div><span style={{color:"#8b949e"}}>Confidence:</span> <span style={{color:confColor(ioc.confidence)}}>{ioc.confidence}</span></div>
                             <div><span style={{color:"#8b949e"}}>Status:</span> <span style={{color:"#c9d1d9"}}>{ioc.status}</span></div>
+                          </div>
+                          <div style={{marginTop:12,paddingTop:12,borderTop:"1px solid #21262d"}}>
+                            <div style={{fontSize:11,color:"#8b949e",marginBottom:8,textTransform:"uppercase",letterSpacing:".06em"}}>IP Enrichment</div>
+                            {ioc.type === 'IP' && ioc.enriched ? (
+                              <>
+                                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,fontSize:11,marginBottom:8}}>
+                                  <div><span style={{color:"#8b949e"}}>Country:</span> <span style={{color:"#c9d1d9"}}>{countryFlag(ioc.countryCode)} {ioc.country} ({ioc.countryCode})</span></div>
+                                  <div><span style={{color:"#8b949e"}}>City:</span> <span style={{color:"#c9d1d9"}}>{ioc.city || '—'}</span></div>
+                                  <div><span style={{color:"#8b949e"}}>ISP:</span> <span style={{color:"#c9d1d9"}}>{ioc.isp || '—'}</span></div>
+                                  <div><span style={{color:"#8b949e"}}>ASN:</span> <span style={{color:"#c9d1d9"}}>{ioc.asn || '—'}</span></div>
+                                </div>
+                                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                                  {ioc.isProxy && <span style={{fontSize:10,padding:"2px 8px",background:"#3d1a1a",color:"#f85149",borderRadius:4,border:"1px solid #f8514940",fontWeight:600}}>PROXY</span>}
+                                  {ioc.isHosting && <span style={{fontSize:10,padding:"2px 8px",background:"#3d2e0a",color:"#d29922",borderRadius:4,border:"1px solid #d2992240",fontWeight:600}}>VPS/HOSTING</span>}
+                                </div>
+                              </>
+                            ) : ioc.type === 'IP' ? (
+                              <span style={{fontSize:11,color:"#484f58"}}>Not yet enriched</span>
+                            ) : (
+                              <span style={{fontSize:11,color:"#484f58"}}>N/A (non-IP)</span>
+                            )}
                           </div>
                           <div style={{display:"flex",gap:8,marginTop:12}}>
                             <button onClick={()=>copyText(ioc.indicator)} style={{padding:"5px 10px",background:"#21262d",border:"1px solid #30363d",borderRadius:6,color:"#c9d1d9",fontSize:11,cursor:"pointer"}}>Copy IOC</button>
