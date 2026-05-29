@@ -190,7 +190,7 @@ export default function IocTracker() {
 
   if (loading) {
     return (
-      <div style={{textAlign:'center',padding:'3rem',color:'#8b949e'}}>
+      <div style={{textAlign:"center",padding:"3rem",color:"#8b949e"}}>
         <div style={{fontSize:32,marginBottom:16}}>⟳</div>
         <div style={{fontSize:14}}>Fetching from threat intel feeds...</div>
         <div style={{fontSize:12,marginTop:8}}>ThreatFox · URLhaus · FeodoTracker · MalwareBazaar · EmergingThreats · CINS Army · AlienVault</div>
@@ -200,34 +200,34 @@ export default function IocTracker() {
 
   return (
     <div>
-      {error && <div style={{background:'#3d1a1a',border:'1px solid #f85149',borderRadius:6,padding:'8px 12px',marginBottom:12,fontSize:12,color:'#f85149'}}>{error}</div>}
+      {error && <div style={{background:"#3d1a1a",border:"1px solid #f85149",borderRadius:6,padding:"8px 12px",marginBottom:12,fontSize:12,color:"#f85149"}}>{error}</div>}
       
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12,flexWrap:'wrap',gap:8}}>
-        <div style={{display:'flex',alignItems:'center',gap:8}}>
-          <span style={{fontSize:16,fontWeight:600,color:'#f0f6fc'}}>IOC Tracker</span>
-          <span style={{width:8,height:8,borderRadius:'50%',background:'#3fb950',display:'inline-block',boxShadow:'0 0 6px #3fb950',animation:'pulse 2s infinite'}}></span>
-          <span style={{fontSize:11,color:'#8b949e'}}>LIVE</span>
-          <span style={{fontSize:11,padding:'2px 8px',background:'#0d2045',color:'#58a6ff',borderRadius:20,border:'1px solid #58a6ff44'}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontSize:16,fontWeight:600,color:"#f0f6fc"}}>IOC Tracker</span>
+          <span style={{width:8,height:8,borderRadius:"50%",background:"#3fb950",display:"inline-block",boxShadow:"0 0 6px #3fb950",animation:"pulse 2s infinite"}}></span>
+          <span style={{fontSize:11,color:"#8b949e"}}>LIVE</span>
+          <span style={{fontSize:11,padding:"2px 8px",background:"#0d2045",color:"#58a6ff",borderRadius:20,border:"1px solid #58a6ff44"}}>
             {iocs.length} IOCs from {FEED_COUNT} feeds ({feedsOnline} online)
           </span>
         </div>
-        <div style={{display:'flex',gap:8,alignItems:'center'}}>
-          <span style={{fontSize:11,color:'#8b949e'}}>Updated: {minutesAgo === 0 ? 'just now' : `${minutesAgo} mins ago`}</span>
-          <button onClick={loadIOCs} style={{padding:'5px 12px',background:'#58a6ff',border:'none',borderRadius:6,color:'#0d1117',fontSize:12,fontWeight:600,cursor:'pointer'}}>↻ Refresh</button>
-          <button onClick={exportCSV} style={{padding:'5px 12px',background:'#21262d',border:'1px solid #30363d',borderRadius:6,color:'#c9d1d9',fontSize:12,cursor:'pointer'}}>Export CSV</button>
-          <button onClick={() => setShowWhitelist(true)} style={{padding:'5px 12px',background:'#21262d',border:'1px solid #30363d',borderRadius:6,color:'#c9d1d9',fontSize:12,cursor:'pointer'}}>Whitelist ({whitelistedIPs.length})</button>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <span style={{fontSize:11,color:"#8b949e"}}>Updated: {minutesAgo === 0 ? 'just now' : `${minutesAgo} mins ago`}</span>
+          <button onClick={loadIOCs} style={{padding:"5px 12px",background:"#58a6ff",border:"none",borderRadius:6,color:"#0d1117",fontSize:12,fontWeight:600,cursor:"pointer"}}>↻ Refresh</button>
+          <button onClick={exportCSV} style={{padding:"5px 12px",background:"#21262d",border:"1px solid #30363d",borderRadius:6,color:"#c9d1d9",fontSize:12,cursor:"pointer"}}>Export CSV</button>
+          <button onClick={() => setShowWhitelist(true)} style={{padding:"5px 12px",background:"#21262d",border:"1px solid #30363d",borderRadius:6,color:"#c9d1d9",fontSize:12,cursor:"pointer"}}>Whitelist ({whitelistedIPs.length})</button>
         </div>
       </div>
 
-      <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:12}}>
+      <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>
         {Object.entries(feedStatus).map(([feed,ok]) => (
-          <span key={feed} style={{fontSize:10,padding:'2px 8px',borderRadius:20,background:ok?'#0d2d1a':'#3d1a1a',color:ok?'#3fb950':'#f85149',border:`1px solid ${ok?'#3fb95040':'#f8514940'}`}}>
+          <span key={feed} style={{fontSize:10,padding:"2px 8px",borderRadius:20,background:ok?"#0d2d1a":"#3d1a1a",color:ok?"#3fb950":"#f85149",border:`1px solid ${ok?"#3fb95040":"#f8514940"}`}}>
             {feed} {ok?'✓':'✗'}
           </span>
         ))}
       </div>
 
-      <div style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:8,marginBottom:12}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:8,marginBottom:12}}>
         {[
           ['Total', stats.total, '#58a6ff'],
           ['IPs', stats.ips, '#d29922'],
@@ -236,100 +236,100 @@ export default function IocTracker() {
           ['Active', stats.active, '#f85149'],
           ['Today', stats.today, '#39d3bb'],
         ].map(([label,val,color]) => (
-          <div key={label} style={{background:'#161b22',border:'1px solid #30363d',borderRadius:8,padding:'10px 12px'}}>
+          <div key={label} style={{background:"#161b22",border:"1px solid #30363d",borderRadius:8,padding:"10px 12px"}}>
             <div style={{fontSize:20,fontWeight:600,color}}>{val}</div>
-            <div style={{fontSize:10,color:'#8b949e',textTransform:'uppercase',letterSpacing:'.06em'}}>{label}</div>
+            <div style={{fontSize:10,color:"#8b949e",textTransform:"uppercase",letterSpacing:".06em"}}>{label}</div>
           </div>
         ))}
       </div>
 
-      <div style={{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap'}}>
-        <input value={search} onChange={e=>{setSearch(e.target.value);setPage(1)}} placeholder="Search indicators, TTPs, sources..." style={{flex:1,minWidth:200,padding:'7px 12px',background:'#0d1117',border:'1px solid #30363d',borderRadius:6,color:'#c9d1d9',fontSize:12,outline:'none'}} />
-        <select value={filterType} onChange={e=>{setFilterType(e.target.value);setPage(1)}} style={{padding:'7px 10px',background:'#161b22',border:'1px solid #30363d',borderRadius:6,color:'#c9d1d9',fontSize:12}}>
+      <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
+        <input value={search} onChange={e=>{setSearch(e.target.value);setPage(1)}} placeholder="Search indicators, TTPs, sources..." style={{flex:1,minWidth:200,padding:"7px 12px",background:"#0d1117",border:"1px solid #30363d",borderRadius:6,color:"#c9d1d9",fontSize:12,outline:"none"}} />
+        <select value={filterType} onChange={e=>{setFilterType(e.target.value);setPage(1)}} style={{padding:"7px 10px",background:"#161b22",border:"1px solid #30363d",borderRadius:6,color:"#c9d1d9",fontSize:12}}>
           {types.map(t=><option key={t}>{t}</option>)}
         </select>
-        <select value={filterSource} onChange={e=>{setFilterSource(e.target.value);setPage(1)}} style={{padding:'7px 10px',background:'#161b22',border:'1px solid #30363d',borderRadius:6,color:'#c9d1d9',fontSize:12}}>
+        <select value={filterSource} onChange={e=>{setFilterSource(e.target.value);setPage(1)}} style={{padding:"7px 10px",background:"#161b22",border:"1px solid #30363d",borderRadius:6,color:"#c9d1d9",fontSize:12}}>
           {sources.map(s=><option key={s}>{s}</option>)}
         </select>
-        <select value={filterConfidence} onChange={e=>{setFilterConfidence(e.target.value);setPage(1)}} style={{padding:'7px 10px',background:'#161b22',border:'1px solid #30363d',borderRadius:6,color:'#c9d1d9',fontSize:12}}>
+        <select value={filterConfidence} onChange={e=>{setFilterConfidence(e.target.value);setPage(1)}} style={{padding:"7px 10px",background:"#161b22",border:"1px solid #30363d",borderRadius:6,color:"#c9d1d9",fontSize:12}}>
           {['All','High','Medium','Low'].map(c=><option key={c}>{c}</option>)}
         </select>
-        <select value={filterStatus} onChange={e=>{setFilterStatus(e.target.value);setPage(1)}} style={{padding:'7px 10px',background:'#161b22',border:'1px solid #30363d',borderRadius:6,color:'#c9d1d9',fontSize:12}}>
+        <select value={filterStatus} onChange={e=>{setFilterStatus(e.target.value);setPage(1)}} style={{padding:"7px 10px",background:"#161b22",border:"1px solid #30363d",borderRadius:6,color:"#c9d1d9",fontSize:12}}>
           {['All','active','watchlist','investigating'].map(s=><option key={s}>{s}</option>)}
         </select>
-        <select value={sortBy} onChange={e=>handleSort(e.target.value)} style={{padding:'7px 10px',background:'#161b22',border:'1px solid #30363d',borderRadius:6,color:'#c9d1d9',fontSize:12}}>
+        <select value={sortBy} onChange={e=>handleSort(e.target.value)} style={{padding:"7px 10px",background:"#161b22",border:"1px solid #30363d",borderRadius:6,color:"#c9d1d9",fontSize:12}}>
           <option value="date">Sort: Date ({sortDir})</option>
           <option value="confidence">Sort: Confidence ({sortDir})</option>
           <option value="source">Sort: Source ({sortDir})</option>
           <option value="type">Sort: Type ({sortDir})</option>
         </select>
-        <button onClick={clearFilters} style={{padding:'7px 10px',background:'#21262d',border:'1px solid #30363d',borderRadius:6,color:'#8b949e',fontSize:12,cursor:'pointer'}}>Clear</button>
+        <button onClick={clearFilters} style={{padding:"7px 10px",background:"#21262d",border:"1px solid #30363d",borderRadius:6,color:"#8b949e",fontSize:12,cursor:"pointer"}}>Clear</button>
       </div>
 
-      <div style={{overflowX:'auto',marginBottom:12}}>
-        <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+      <div style={{overflowX:"auto",marginBottom:12}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
           <thead>
-            <tr style={{borderBottom:'1px solid #30363d'}}>
-              <th style={{padding:'8px',textAlign:'left',width:32}}><input type="checkbox" checked={paginated.length>0 && paginated.every(i=>selected.has(i.indicator))} onChange={toggleSelectAll} /></th>
-              <th style={{padding:'8px',textAlign:'left',color:'#8b949e',fontSize:10,textTransform:'uppercase',letterSpacing:'.06em',fontWeight:500}}>Indicator</th>
-              <th style={{padding:'8px',textAlign:'left',color:'#8b949e',fontSize:10,textTransform:'uppercase',letterSpacing:'.06em',fontWeight:500}}>Type</th>
-              <th style={{padding:'8px',textAlign:'left',color:'#8b949e',fontSize:10,textTransform:'uppercase',letterSpacing:'.06em',fontWeight:500'}}>TTP</th>
-              <th style={{padding:'8px',textAlign:'left',color:'#8b949e',fontSize:10,textTransform:'uppercase',letterSpacing:'.06em',fontWeight:500}}>Malware</th>
-              <th style={{padding:'8px',textAlign:'left',color:'#8b949e',fontSize:10,textTransform:'uppercase',letterSpacing:'.06em',fontWeight:500'}}>Log Source</th>
-              <th style={{padding:'8px',textAlign:'left',color:'#8b949e',fontSize:10,textTransform:'uppercase',letterSpacing:'.06em',fontWeight:500'}}>Confidence</th>
-              <th style={{padding:'8px',textAlign:'left',color:'#8b949e',fontSize:10,textTransform:'uppercase',letterSpacing:'.06em',fontWeight:500}}>Status</th>
-              <th style={{padding:'8px',textAlign:'left',color:'#8b949e',fontSize:10,textTransform:'uppercase',letterSpacing:'.06em',fontWeight:500}}>Source</th>
-              <th style={{padding:'8px',textAlign:'left',color:'#8b949e',fontSize:10,textTransform:'uppercase',letterSpacing:'.06em',fontWeight:500}}>Date</th>
-              <th style={{padding:'8px',textAlign:'left',color:'#8b949e',fontSize:10,textTransform:'uppercase',letterSpacing:'.06em',fontWeight:500'}}>Actions</th>
+            <tr style={{borderBottom:"1px solid #30363d"}}>
+              <th style={{padding:"8px",textAlign:"left",width:32}}><input type="checkbox" checked={paginated.length>0 && paginated.every(i=>selected.has(i.indicator))} onChange={toggleSelectAll} /></th>
+              <th style={{padding:"8px",textAlign:"left",color:"#8b949e",fontSize:10,textTransform:"uppercase",letterSpacing:".06em",fontWeight:500}}>Indicator</th>
+              <th style={{padding:"8px",textAlign:"left",color:"#8b949e",fontSize:10,textTransform:"uppercase",letterSpacing:".06em",fontWeight:500}}>Type</th>
+              <th style={{padding:"8px",textAlign:"left",color:"#8b949e",fontSize:10,textTransform:"uppercase",letterSpacing:".06em",fontWeight:500}}>TTP</th>
+              <th style={{padding:"8px",textAlign:"left",color:"#8b949e",fontSize:10,textTransform:"uppercase",letterSpacing:".06em",fontWeight:500}}>Malware</th>
+              <th style={{padding:"8px",textAlign:"left",color:"#8b949e",fontSize:10,textTransform:"uppercase",letterSpacing:".06em",fontWeight:500}}>Log Source</th>
+              <th style={{padding:"8px",textAlign:"left",color:"#8b949e",fontSize:10,textTransform:"uppercase",letterSpacing:".06em",fontWeight:500}}>Confidence</th>
+              <th style={{padding:"8px",textAlign:"left",color:"#8b949e",fontSize:10,textTransform:"uppercase",letterSpacing:".06em",fontWeight:500}}>Status</th>
+              <th style={{padding:"8px",textAlign:"left",color:"#8b949e",fontSize:10,textTransform:"uppercase",letterSpacing:".06em",fontWeight:500}}>Source</th>
+              <th style={{padding:"8px",textAlign:"left",color:"#8b949e",fontSize:10,textTransform:"uppercase",letterSpacing:".06em",fontWeight:500}}>Date</th>
+              <th style={{padding:"8px",textAlign:"left",color:"#8b949e",fontSize:10,textTransform:"uppercase",letterSpacing:".06em",fontWeight:500}}>Actions</th>
             </tr>
           </thead>
           <tbody>
             {paginated.map((ioc,i) => (
               <>
-                <tr key={ioc.indicator+i} onClick={()=>setExpandedRow(expandedRow===i?null:i)} style={{borderBottom:'1px solid #21262d',cursor:'pointer',background:expandedRow===i?'#1c2128':'transparent'}} onMouseEnter={e=>e.currentTarget.style.background='#1c2128'} onMouseLeave={e=>e.currentTarget.style.background=expandedRow===i?'#1c2128':'transparent'}}>
-                  <td style={{padding:'8px'}} onClick={e=>e.stopPropagation()}><input type="checkbox" checked={selected.has(ioc.indicator)} onChange={()=>toggleSelect(ioc.indicator)} /></td>
-                  <td style={{padding:'8px',color:'#58a6ff',maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontFamily:'monospace',fontSize:11}} title={ioc.indicator}>{ioc.indicator}</td>
-                  <td style={{padding:'8px'}}><span style={{fontSize:10,padding:'2px 6px',borderRadius:4,background:'#21262d',color:'#c9d1d9',border:'1px solid #30363d'}}>{ioc.type}</span></td>
-                  <td style={{padding:'8px',fontSize:11,color:'#c9d1d9',maxWidth:120,overflow:'hidden',textOverflow:'ellipsis'}}>{ioc.ttpId||ioc.ttp}</td>
-                  <td style={{padding:'8px',fontSize:11,color:'#8b949e',maxWidth:120,overflow:'hidden',textOverflow:'ellipsis'}}>{ioc.malwareFamily||'—'}</td>
-                  <td style={{padding:'8px',fontSize:11,color:'#8b949e'}}>{ioc.logSource}</td>
-                  <td style={{padding:'8px'}}><span style={{color:confColor(ioc.confidence),fontWeight:600,fontSize:11}}>{ioc.confidence}</span></td>
-                  <td style={{padding:'8px'}}><span style={{display:'inline-block',width:6,height:6,borderRadius:'50%',background:statusColor(ioc.status),marginRight:6}}></span><span style={{fontSize:11,color:'#c9d1d9',textTransform:'capitalize'}}>{ioc.status}</span></td>
-                  <td style={{padding:'8px',fontSize:11,color:'#8b949e'}}>{ioc.source}</td>
-                  <td style={{padding:'8px',fontSize:11,color:'#8b949e',whiteSpace:'nowrap'}}>{ioc.dateAdded}</td>
-                  <td style={{padding:'8px'}}>
-                    <div style={{display:'flex',gap:4}}>
-                      <button onClick={e=>{e.stopPropagation();setExpandedRow(expandedRow===i?null:i)}} style={{padding:'2px 6px',background:'#21262d',border:'1px solid #30363d',borderRadius:4,color:'#c9d1d9',fontSize:10,cursor:'pointer'}}>🔍</button>
-                      <button onClick={e=>{e.stopPropagation();copyText(generateIOCKQL(ioc))}} style={{padding:'2px 6px',background:'#21262d',border:'1px solid #30363d',borderRadius:4,color:'#c9d1d9',fontSize:10,cursor:'pointer'}}>📋</button>
-                      <button onClick={e=>{e.stopPropagation();setWhitelistConfirm(ioc.indicator)}} style={{padding:'2px 6px',background:'#21262d',border:'1px solid #30363d',borderRadius:4,color:'#c9d1d9',fontSize:10,cursor:'pointer'}}>🚫</button>
+                <tr key={ioc.indicator+i} onClick={()=>setExpandedRow(expandedRow===i?null:i)} style={{borderBottom:"1px solid #21262d",cursor:"pointer",background:expandedRow===i?"#1c2128":"transparent"}} onMouseEnter={e=>e.currentTarget.style.background="#1c2128"} onMouseLeave={e=>e.currentTarget.style.background=expandedRow===i?"#1c2128":"transparent"}>
+                  <td style={{padding:"8px"}} onClick={e=>e.stopPropagation()}><input type="checkbox" checked={selected.has(ioc.indicator)} onChange={()=>toggleSelect(ioc.indicator)} /></td>
+                  <td style={{padding:"8px",color:"#58a6ff",maxWidth:180,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontFamily:"monospace",fontSize:11}} title={ioc.indicator}>{ioc.indicator}</td>
+                  <td style={{padding:"8px"}}><span style={{fontSize:10,padding:"2px 6px",borderRadius:4,background:"#21262d",color:"#c9d1d9",border:"1px solid #30363d"}}>{ioc.type}</span></td>
+                  <td style={{padding:"8px",fontSize:11,color:"#c9d1d9",maxWidth:120,overflow:"hidden",textOverflow:"ellipsis"}}>{ioc.ttpId||ioc.ttp}</td>
+                  <td style={{padding:"8px",fontSize:11,color:"#8b949e",maxWidth:120,overflow:"hidden",textOverflow:"ellipsis"}}>{ioc.malwareFamily||'—'}</td>
+                  <td style={{padding:"8px",fontSize:11,color:"#8b949e"}}>{ioc.logSource}</td>
+                  <td style={{padding:"8px"}}><span style={{color:confColor(ioc.confidence),fontWeight:600,fontSize:11}}>{ioc.confidence}</span></td>
+                  <td style={{padding:"8px"}}><span style={{display:"inline-block",width:6,height:6,borderRadius:"50%",background:statusColor(ioc.status),marginRight:6}}></span><span style={{fontSize:11,color:"#c9d1d9",textTransform:"capitalize"}}>{ioc.status}</span></td>
+                  <td style={{padding:"8px",fontSize:11,color:"#8b949e"}}>{ioc.source}</td>
+                  <td style={{padding:"8px",fontSize:11,color:"#8b949e",whiteSpace:"nowrap"}}>{ioc.dateAdded}</td>
+                  <td style={{padding:"8px"}}>
+                    <div style={{display:"flex",gap:4}}>
+                      <button onClick={e=>{e.stopPropagation();setExpandedRow(expandedRow===i?null:i)}} style={{padding:"2px 6px",background:"#21262d",border:"1px solid #30363d",borderRadius:4,color:"#c9d1d9",fontSize:10,cursor:"pointer"}}>🔍</button>
+                      <button onClick={e=>{e.stopPropagation();copyText(generateIOCKQL(ioc))}} style={{padding:"2px 6px",background:"#21262d",border:"1px solid #30363d",borderRadius:4,color:"#c9d1d9",fontSize:10,cursor:"pointer"}}>📋</button>
+                      <button onClick={e=>{e.stopPropagation();setWhitelistConfirm(ioc.indicator)}} style={{padding:"2px 6px",background:"#21262d",border:"1px solid #30363d",borderRadius:4,color:"#c9d1d9",fontSize:10,cursor:"pointer"}}>🚫</button>
                     </div>
                   </td>
                 </tr>
                 {expandedRow===i && (
-                  <tr key={'exp'+i} style={{background:'#0d1117'}}>
-                    <td colSpan={11} style={{padding:'12px 16px'}}>
-                      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
+                  <tr key={'exp'+i} style={{background:"#0d1117"}}>
+                    <td colSpan={11} style={{padding:"12px 16px"}}>
+                      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
                         <div>
-                          <div style={{fontSize:11,color:'#8b949e',marginBottom:8,textTransform:'uppercase',letterSpacing:'.06em'}}>Full Indicator</div>
-                          <div style={{fontFamily:'monospace',fontSize:12,color:'#58a6ff',wordBreak:'break-all',marginBottom:8}}>{ioc.indicator}</div>
-                          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,fontSize:11}}>
-                            <div><span style={{color:'#8b949e'}}>Type:</span> <span style={{color:'#c9d1d9'}}>{ioc.type}</span></div>
-                            <div><span style={{color:'#8b949e'}}>Source:</span> <span style={{color:'#c9d1d9'}}>{ioc.source}</span></div>
-                            <div><span style={{color:'#8b949e'}}>TTP:</span> <span style={{color:'#c9d1d9'}}>{ioc.ttp}</span></div>
-                            <div><span style={{color:'#8b949e'}}>Malware:</span> <span style={{color:'#c9d1d9'}}>{ioc.malwareFamily||'Unknown'}</span></div>
-                            <div><span style={{color:'#8b949e'}}>Confidence:</span> <span style={{color:confColor(ioc.confidence)}}>{ioc.confidence}</span></div>
-                            <div><span style={{color:'#8b949e'}}>Status:</span> <span style={{color:'#c9d1d9'}}>{ioc.status}</span></div>
+                          <div style={{fontSize:11,color:"#8b949e",marginBottom:8,textTransform:"uppercase",letterSpacing:".06em"}}>Full Indicator</div>
+                          <div style={{fontFamily:"monospace",fontSize:12,color:"#58a6ff",wordBreak:"break-all",marginBottom:8}}>{ioc.indicator}</div>
+                          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,fontSize:11}}>
+                            <div><span style={{color:"#8b949e"}}>Type:</span> <span style={{color:"#c9d1d9"}}>{ioc.type}</span></div>
+                            <div><span style={{color:"#8b949e"}}>Source:</span> <span style={{color:"#c9d1d9"}}>{ioc.source}</span></div>
+                            <div><span style={{color:"#8b949e"}}>TTP:</span> <span style={{color:"#c9d1d9"}}>{ioc.ttp}</span></div>
+                            <div><span style={{color:"#8b949e"}}>Malware:</span> <span style={{color:"#c9d1d9"}}>{ioc.malwareFamily||'Unknown'}</span></div>
+                            <div><span style={{color:"#8b949e"}}>Confidence:</span> <span style={{color:confColor(ioc.confidence)}}>{ioc.confidence}</span></div>
+                            <div><span style={{color:"#8b949e"}}>Status:</span> <span style={{color:"#c9d1d9"}}>{ioc.status}</span></div>
                           </div>
-                          <div style={{display:'flex',gap:8,marginTop:12}}>
-                            <button onClick={()=>copyText(ioc.indicator)} style={{padding:'5px 10px',background:'#21262d',border:'1px solid #30363d',borderRadius:6,color:'#c9d1d9',fontSize:11,cursor:'pointer'}}>Copy IOC</button>
+                          <div style={{display:"flex",gap:8,marginTop:12}}>
+                            <button onClick={()=>copyText(ioc.indicator)} style={{padding:"5px 10px",background:"#21262d",border:"1px solid #30363d",borderRadius:6,color:"#c9d1d9",fontSize:11,cursor:"pointer"}}>Copy IOC</button>
                           </div>
                         </div>
                         <div>
-                          <div style={{fontSize:11,color:'#8b949e',marginBottom:8,textTransform:'uppercase',letterSpacing:'.06em'}}>Sentinel KQL</div>
-                          <pre style={{background:'#161b22',border:'1px solid #30363d',borderRadius:6,padding:'10px',fontSize:10,fontFamily:'monospace',color:'#c9d1d9',whiteSpace:'pre-wrap',wordBreak:'break-all',margin:0,maxHeight:150,overflow:'auto'}}>{generateIOCKQL(ioc)}</pre>
-                          <div style={{display:'flex',gap:8,marginTop:8}}>
-                            <button onClick={()=>copyText(generateIOCKQL(ioc))} style={{padding:'5px 10px',background:'#21262d',border:'1px solid #30363d',borderRadius:6,color:'#c9d1d9',fontSize:11,cursor:'pointer'}}>Copy KQL</button>
-                            <a href="https://portal.azure.com/#blade/Microsoft_Azure_Monitoring_Logs/LogsBlade" target="_blank" rel="noreferrer" style={{padding:'5px 10px',background:'#0d2045',border:'1px solid #58a6ff44',borderRadius:6,color:'#58a6ff',fontSize:11,textDecoration:'none'}}>Open in Sentinel →</a>
+                          <div style={{fontSize:11,color:"#8b949e",marginBottom:8,textTransform:"uppercase",letterSpacing:".06em"}}>Sentinel KQL</div>
+                          <pre style={{background:"#161b22",border:"1px solid #30363d",borderRadius:6,padding:"10px",fontSize:10,fontFamily:"monospace",color:"#c9d1d9",whiteSpace:"pre-wrap",wordBreak:"break-all",margin:0,maxHeight:150,overflow:"auto"}}>{generateIOCKQL(ioc)}</pre>
+                          <div style={{display:"flex",gap:8,marginTop:8}}>
+                            <button onClick={()=>copyText(generateIOCKQL(ioc))} style={{padding:"5px 10px",background:"#21262d",border:"1px solid #30363d",borderRadius:6,color:"#c9d1d9",fontSize:11,cursor:"pointer"}}>Copy KQL</button>
+                            <a href="https://portal.azure.com/#blade/Microsoft_Azure_Monitoring_Logs/LogsBlade" target="_blank" rel="noreferrer" style={{padding:"5px 10px",background:"#0d2045",border:"1px solid #58a6ff44",borderRadius:6,color:"#58a6ff",fontSize:11,textDecoration:"none"}}>Open in Sentinel →</a>
                           </div>
                         </div>
                       </div>
@@ -342,62 +342,62 @@ export default function IocTracker() {
         </table>
       </div>
 
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
-        <div style={{fontSize:12,color:'#8b949e'}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+        <div style={{fontSize:12,color:"#8b949e"}}>
           Showing {Math.min((page-1)*PER_PAGE+1, filtered.length)}–{Math.min(page*PER_PAGE, filtered.length)} of {filtered.length}
-          {selected.size>0 && <span style={{marginLeft:12,color:'#58a6ff'}}>{selected.size} selected</span>}
+          {selected.size>0 && <span style={{marginLeft:12,color:"#58a6ff"}}>{selected.size} selected</span>}
         </div>
-        <div style={{display:'flex',gap:4,alignItems:'center'}}>
-          <button onClick={()=>setPage(p=>Math.max(1,p-1))} disabled={page===1} style={{padding:'5px 10px',background:'#21262d',border:'1px solid #30363d',borderRadius:6,color:page===1?'#484f58':'#c9d1d9',fontSize:12,cursor:page===1?'default':'pointer'}}>← Prev</button>
+        <div style={{display:"flex",gap:4,alignItems:"center"}}>
+          <button onClick={()=>setPage(p=>Math.max(1,p-1))} disabled={page===1} style={{padding:"5px 10px",background:"#21262d",border:"1px solid #30363d",borderRadius:6,color:page===1?"#484f58":"#c9d1d9",fontSize:12,cursor:page===1?"default":"pointer"}}>← Prev</button>
           {Array.from({length:Math.min(5,totalPages)},(_,i)=>{
             let p = page<=3?i+1:page+i-2
             if(p>totalPages) return null
-            return <button key={p} onClick={()=>setPage(p)} style={{padding:'5px 10px',background:page===p?'#58a6ff':'#21262d',border:'1px solid #30363d',borderRadius:6,color:page===p?'#0d1117':'#c9d1d9',fontSize:12,cursor:'pointer'}}>{p}</button>
+            return <button key={p} onClick={()=>setPage(p)} style={{padding:"5px 10px",background:page===p?"#58a6ff":"#21262d",border:"1px solid #30363d",borderRadius:6,color:page===p?"#0d1117":"#c9d1d9",fontSize:12,cursor:"pointer"}}>{p}</button>
           })}
-          <button onClick={()=>setPage(p=>Math.min(totalPages,p+1))} disabled={page===totalPages} style={{padding:'5px 10px',background:'#21262d',border:'1px solid #30363d',borderRadius:6,color:page===totalPages?'#484f58':'#c9d1d9',fontSize:12,cursor:page===totalPages?'default':'pointer'}}>Next →</button>
+          <button onClick={()=>setPage(p=>Math.min(totalPages,p+1))} disabled={page===totalPages} style={{padding:"5px 10px",background:"#21262d",border:"1px solid #30363d",borderRadius:6,color:page===totalPages?"#484f58":"#c9d1d9",fontSize:12,cursor:page===totalPages?"default":"pointer"}}>Next →</button>
         </div>
         {selected.size>0 && (
           <button onClick={()=>{
             const sel = iocs.filter(i=>selected.has(i.indicator))
             setGeneratedKQL(generateWatchlistKQL(sel))
             setShowKQLModal(true)
-          }} style={{padding:'6px 14px',background:'#0d2045',border:'1px solid #58a6ff44',borderRadius:6,color:'#58a6ff',fontSize:12,cursor:'pointer'}}>
+          }} style={{padding:"6px 14px",background:"#0d2045",border:"1px solid #58a6ff44",borderRadius:6,color:"#58a6ff",fontSize:12,cursor:"pointer"}}>
             Generate Watchlist KQL ({selected.size})
           </button>
         )}
       </div>
 
       {showKQLModal && (
-        <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'rgba(0,0,0,0.8)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={()=>setShowKQLModal(false)}>
-          <div style={{background:'#161b22',border:'1px solid #30363d',borderRadius:10,padding:'1.5rem',maxWidth:700,width:'90%',maxHeight:'80vh',overflow:'auto'}} onClick={e=>e.stopPropagation()}>
+        <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.8)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={()=>setShowKQLModal(false)}>
+          <div style={{background:"#161b22",border:"1px solid #30363d",borderRadius:10,padding:"1.5rem",maxWidth:700,width:"90%",maxHeight:"80vh",overflow:"auto"}} onClick={e=>e.stopPropagation()}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
-              <span style={{fontSize:14,fontWeight:600,color:'#f0f6fc'}}>Sentinel Watchlist KQL</span>
-              <button onClick={()=>setShowKQLModal(false)} style={{background:'none',border:'none',color:'#8b949e',fontSize:18,cursor:'pointer'}}>✕</button>
+              <span style={{fontSize:14,fontWeight:600,color:"#f0f6fc"}}>Sentinel Watchlist KQL</span>
+              <button onClick={()=>setShowKQLModal(false)} style={{background:"none",border:"none",color:"#8b949e",fontSize:18,cursor:"pointer"}}>✕</button>
             </div>
-            <pre style={{background:'#0d1117',border:'1px solid #30363d',borderRadius:6,padding:'12px',fontSize:11,fontFamily:'monospace',color:'#c9d1d9',whiteSpace:'pre-wrap',marginBottom:12}}>{generatedKQL}</pre>
-            <div style={{display:'flex',gap:8}}>
-              <button onClick={()=>copyText(generatedKQL)} style={{padding:'6px 14px',background:'#21262d',border:'1px solid #30363d',borderRadius:6,color:'#c9d1d9',fontSize:12,cursor:'pointer'}}>Copy KQL</button>
-              <a href="https://portal.azure.com/#blade/Microsoft_Azure_Monitoring_Logs/LogsBlade" target="_blank" rel="noreferrer" style={{padding:'6px 14px',background:'#0d2045',border:'1px solid #58a6ff44',borderRadius:6,color:'#58a6ff',fontSize:12,textDecoration:'none'}}>Open in Sentinel →</a>
+            <pre style={{background:"#0d1117",border:"1px solid #30363d",borderRadius:6,padding:"12px",fontSize:11,fontFamily:"monospace",color:"#c9d1d9",whiteSpace:"pre-wrap",marginBottom:12}}>{generatedKQL}</pre>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={()=>copyText(generatedKQL)} style={{padding:"6px 14px",background:"#21262d",border:"1px solid #30363d",borderRadius:6,color:"#c9d1d9",fontSize:12,cursor:"pointer"}}>Copy KQL</button>
+              <a href="https://portal.azure.com/#blade/Microsoft_Azure_Monitoring_Logs/LogsBlade" target="_blank" rel="noreferrer" style={{padding:"6px 14px",background:"#0d2045",border:"1px solid #58a6ff44",borderRadius:6,color:"#58a6ff",fontSize:12,textDecoration:"none"}}>Open in Sentinel →</a>
             </div>
           </div>
         </div>
       )}
 
       {showWhitelist && (
-        <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'rgba(0,0,0,0.8)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={()=>setShowWhitelist(false)}>
-          <div style={{background:'#161b22',border:'1px solid #30363d',borderRadius:10,padding:'1.5rem',maxWidth:500,width:'90%',maxHeight:'80vh',overflow:'auto'}} onClick={e=>e.stopPropagation()}>
+        <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.8)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={()=>setShowWhitelist(false)}>
+          <div style={{background:"#161b22",border:"1px solid #30363d",borderRadius:10,padding:"1.5rem",maxWidth:500,width:"90%",maxHeight:"80vh",overflow:"auto"}} onClick={e=>e.stopPropagation()}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
-              <span style={{fontSize:14,fontWeight:600,color:'#f0f6fc'}}>IOC Whitelist</span>
-              <button onClick={()=>setShowWhitelist(false)} style={{background:'none',border:'none',color:'#8b949e',fontSize:18,cursor:'pointer'}}>✕</button>
+              <span style={{fontSize:14,fontWeight:600,color:"#f0f6fc"}}>IOC Whitelist</span>
+              <button onClick={()=>setShowWhitelist(false)} style={{background:"none",border:"none",color:"#8b949e",fontSize:18,cursor:"pointer"}}>✕</button>
             </div>
             {whitelistedIPs.length === 0 ? (
-              <p style={{color:'#8b949e',fontSize:12}}>No whitelisted indicators</p>
+              <p style={{color:"#8b949e",fontSize:12}}>No whitelisted indicators</p>
             ) : (
-              <div style={{maxHeight:300,overflow:'auto',marginBottom:12}}>
+              <div style={{maxHeight:300,overflow:"auto",marginBottom:12}}>
                 {whitelistedIPs.map((ip, idx) => (
-                  <div key={idx} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px',background:'#0d1117',borderRadius:4,marginBottom:4}}>
-                    <span style={{fontFamily:'monospace',fontSize:11,color:'#c9d1d9'}}>{ip}</span>
-                    <button onClick={()=>removeFromWhitelist(ip)} style={{padding:'2px 8px',background:'#f85149',border:'none',borderRadius:4,color:'#0d1117',fontSize:10,cursor:'pointer'}}>✕</button>
+                  <div key={idx} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px",background:"#0d1117",borderRadius:4,marginBottom:4}}>
+                    <span style={{fontFamily:"monospace",fontSize:11,color:"#c9d1d9"}}>{ip}</span>
+                    <button onClick={()=>removeFromWhitelist(ip)} style={{padding:"2px 8px",background:"#f85149",border:"none",borderRadius:4,color:"#0d1117",fontSize:10,cursor:"pointer"}}>✕</button>
                   </div>
                 ))}
               </div>
@@ -407,7 +407,7 @@ export default function IocTracker() {
                 setWhitelistedIPs([])
                 localStorage.setItem('iocWhitelist', '[]')
                 loadIOCs()
-              }} style={{width:'100%',padding:'8px',background:'#f85149',border:'none',borderRadius:6,color:'#0d1117',fontSize:12,cursor:'pointer',marginBottom:12}}>
+              }} style={{width:"100%",padding:"8px",background:"#f85149",border:"none",borderRadius:6,color:"#0d1117",fontSize:12,cursor:"pointer",marginBottom:12}}>
                 Clear All Whitelist
               </button>
             )}
@@ -416,22 +416,22 @@ export default function IocTracker() {
       )}
 
       {whitelistConfirm && (
-        <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'rgba(0,0,0,0.8)',zIndex:1001,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={()=>setWhitelistConfirm(null)}>
-          <div style={{background:'#161b22',border:'1px solid #30363d',borderRadius:10,padding:'1.5rem',maxWidth:400,width:'90%'}} onClick={e=>e.stopPropagation()}>
-            <div style={{fontSize:14,fontWeight:600,color:'#f0f6fc',marginBottom:12}}>Add to Whitelist?</div>
-            <p style={{color:'#8b949e',fontSize:12,marginBottom:16}}>
-              This will hide <span style={{fontFamily:'monospace',color:'#58a6ff'}}>{whitelistConfirm}</span> from the IOC tracker. You can remove it from the whitelist in Settings.
+        <div style={{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.8)",zIndex:1001,display:"flex",alignItems:"center",justifyContent:"center"}} onClick={()=>setWhitelistConfirm(null)}>
+          <div style={{background:"#161b22",border:"1px solid #30363d",borderRadius:10,padding:"1.5rem",maxWidth:400,width:"90%"}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:14,fontWeight:600,color:"#f0f6fc",marginBottom:12}}>Add to Whitelist?</div>
+            <p style={{color:"#8b949e",fontSize:12,marginBottom:16}}>
+              This will hide <span style={{fontFamily:"monospace",color:"#58a6ff"}}>{whitelistConfirm}</span> from the IOC tracker. You can remove it from the whitelist in Settings.
             </p>
-            <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
-              <button onClick={()=>setWhitelistConfirm(null)} style={{padding:'6px 14px',background:'#21262d',border:'1px solid #30363d',borderRadius:6,color:'#c9d1d9',fontSize:12,cursor:'pointer'}}>Cancel</button>
-              <button onClick={()=>addToWhitelist(whitelistConfirm)} style={{padding:'6px 14px',background:'#f85149',border:'none',borderRadius:6,color:'#0d1117',fontSize:12,cursor:'pointer'}}>Add to Whitelist</button>
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+              <button onClick={()=>setWhitelistConfirm(null)} style={{padding:"6px 14px",background:"#21262d",border:"1px solid #30363d",borderRadius:6,color:"#c9d1d9",fontSize:12,cursor:"pointer"}}>Cancel</button>
+              <button onClick={()=>addToWhitelist(whitelistConfirm)} style={{padding:"6px 14px",background:"#f85149",border:"none",borderRadius:6,color:"#0d1117",fontSize:12,cursor:"pointer"}}>Add to Whitelist</button>
             </div>
           </div>
         </div>
       )}
 
       {copyMsg && (
-        <div style={{position:'fixed',bottom:20,right:20,background:'#3fb950',color:'#0d1117',padding:'8px 16px',borderRadius:6,fontSize:12,zIndex:1002}}>
+        <div style={{position:"fixed",bottom:20,right:20,background:"#3fb950",color:"#0d1117",padding:"8px 16px",borderRadius:6,fontSize:12,zIndex:1002}}>
           {copyMsg}
         </div>
       )}
