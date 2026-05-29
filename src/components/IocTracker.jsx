@@ -1,996 +1,447 @@
-import {
-  useState,
-  useEffect,
-  useMemo,
-  useCallback,
-  useRef,
-  useContext,
-  Fragment,
-} from 'react'
-import localIocs from '../data/iocs.json'
-import { ThreatDataContext } from '../context/ThreatDataContext'
-import {
-  fetchAllIOCs,
-  generateWatchlistKQL,
-  FEED_LABELS,
-  FEED_COUNT,
-  mergeIocLists,
-} from '../services/threatIntel'
-import {
-  enrichIOC,
-  getCachedEnrichment,
-  setCachedEnrichment,
-  countryFlag,
-  truncate,
-  domainAgeDays,
-} from '../services/iocEnrichment'
+import { useState, useEffect, useRef } from 'react'
+import { fetchAllIOCs, generateWatchlistKQL, FEED_LABELS, FEED_COUNT } from '../services/threatIntel'
+import localIOCs from '../data/iocs.json'
 
-const PAGE_SIZE = 50
-const ENRICH_DELAY_MS = 300
+const PER_PAGE = 50
 
-const STATUS_DOT = {
-  active: 'var(--red)',
-  investigating: 'var(--amber)',
-  watchlist: 'var(--green)',
-}
-
-const TYPE_OPTIONS = ['All', 'IP', 'URL', 'Domain', 'SHA256']
-
-const CSV_HEADERS = [
-  'Indicator',
-  'Type',
-  'TTP',
-  'TTP ID',
-  'Country',
-  'ASN/ISP',
-  'Malware Family',
-  'Log Source',
-  'Confidence',
-  'Status',
-  'Source',
-  'Date Added',
-]
-
-const today = new Date().toISOString().split('T')[0]
-
-function escapeCsv(value) {
-  const str = String(value ?? '')
-  if (str.includes('"') || str.includes(',') || str.includes('\n')) {
-    return `"${str.replace(/"/g, '""')}"`
-  }
-  return str
-}
-
-function normalizeLocalIoc(ioc) {
-  return {
-    ...ioc,
-    malwareFamily: ioc.malwareFamily || '',
-    threatType: ioc.threatType || '',
-    ttpId: ioc.ttpId || '',
-  }
-}
-
-function matchesType(ioc, filterType) {
-  if (filterType === 'All') return true
-  const t = String(ioc.type || '')
-  if (filterType === 'IP') return t === 'IP' || t.toLowerCase().includes('ip')
-  return t === filterType
-}
-
-function getEnrichmentFor(ioc, enrichmentMap) {
-  return enrichmentMap[ioc.indicator] || getCachedEnrichment(ioc.indicator)
-}
-
-function LoadingSkeleton() {
-  return (
-    <div className="ioc-skeleton-wrap" aria-hidden="true">
-      {[1, 2, 3].map((n) => (
-        <div key={n} className="ioc-skeleton-row">
-          <span className="ioc-skeleton-cell short" />
-          <span className="ioc-skeleton-cell long" />
-          <span className="ioc-skeleton-cell medium" />
-          <span className="ioc-skeleton-cell medium" />
-          <span className="ioc-skeleton-cell long" />
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function EnrichmentDetailPanel({ ioc, enrichment, enriching, onEnrich }) {
-  if (enriching) {
-    return (
-      <div className="ioc-enrichment-card">
-        <span className="spinner" aria-hidden="true" /> Enriching…
-      </div>
-    )
-  }
-
-  if (!enrichment?.enriched) {
-    return (
-      <div className="ioc-enrichment-card ioc-enrichment-empty">
-        <p>Not enriched yet</p>
-        <button type="button" className="export-btn small" onClick={onEnrich}>
-          Enrich
-        </button>
-      </div>
-    )
-  }
-
-  const type = String(ioc.type || '').toUpperCase()
-
-  if (type === 'IP' || type.includes('IP')) {
-    return (
-      <div className="ioc-enrichment-card">
-        <div className="enrich-header">
-          <span className="enrich-flag">{countryFlag(enrichment.countryCode)}</span>
-          <strong>
-            {enrichment.country}
-            {enrichment.city ? ` · ${enrichment.city}` : ''}
-          </strong>
-        </div>
-        <p>
-          <strong>ISP:</strong> {enrichment.isp || '—'}
-        </p>
-        <p>
-          <strong>Org:</strong> {enrichment.org || '—'}
-        </p>
-        <p>
-          <strong>ASN:</strong> {enrichment.asn || '—'}
-        </p>
-        <div className="enrich-badges">
-          {enrichment.isProxy && <span className="enrich-badge proxy">Proxy/VPN</span>}
-          {enrichment.isHosting && <span className="enrich-badge hosting">Hosting/VPS</span>}
-        </div>
-      </div>
-    )
-  }
-
-  if (type === 'DOMAIN') {
-    const age = domainAgeDays(enrichment.registered)
-    return (
-      <div className="ioc-enrichment-card">
-        <p>
-          <strong>Registered:</strong> {enrichment.registered || '—'}
-        </p>
-        <p>
-          <strong>Updated:</strong> {enrichment.updated || '—'}
-        </p>
-        {age !== null && (
-          <p>
-            <strong>Domain age:</strong> {age} days
-          </p>
-        )}
-      </div>
-    )
-  }
-
-  if (type === 'SHA256' || type.includes('SHA256')) {
-    return (
-      <div className="ioc-enrichment-card">
-        <p>
-          <strong>File:</strong> {enrichment.fileName || '—'} ({enrichment.fileType || '—'})
-        </p>
-        <p>
-          <strong>Size:</strong> {enrichment.fileSize ?? '—'} bytes
-        </p>
-        <p>
-          <strong>Malware family:</strong> {enrichment.malwareFamily || '—'}
-        </p>
-        <p>
-          <strong>First seen:</strong> {enrichment.firstSeen || '—'}
-        </p>
-        {enrichment.tags?.length > 0 && (
-          <div className="tag-pills">
-            {enrichment.tags.map((t) => (
-              <span key={t} className="tag-pill">
-                {t}
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
-    )
-  }
-
-  return (
-    <div className="ioc-enrichment-card ioc-enrichment-empty">
-      <p>Enrichment not available for this type</p>
-    </div>
-  )
-}
-
-const LAST_VISIT_KEY = 'iocLastVisitTimestamp'
-
-function isNewSinceVisit(dateAdded, baselineDate) {
-  if (!dateAdded || !baselineDate) return false
-  const added = String(dateAdded).slice(0, 10)
-  const baseline = String(baselineDate).slice(0, 10)
-  return added >= baseline
-}
-
-function IocTracker({
-  onIocCountChange,
-  onNewIocCountChange,
-  iocTabActive = false,
-  highlightId,
-  highlightTerm,
-  onHighlightDone,
-}) {
-  const { setLiveIOCs, setIocLoaded } = useContext(ThreatDataContext)
+export default function IocTracker() {
   const [iocs, setIocs] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [newIocCount, setNewIocCount] = useState(0)
-  const visitBaselineRef = useRef(
-    localStorage.getItem(LAST_VISIT_KEY) || '1970-01-01'
-  )
-  const [lastUpdated, setLastUpdated] = useState(null)
-  const [totalCount, setTotalCount] = useState(0)
   const [feedStatus, setFeedStatus] = useState({})
-  const [loadProgress, setLoadProgress] = useState(0)
-  const [selectedIOCs, setSelectedIOCs] = useState(new Set())
-  const [searchTerm, setSearchTerm] = useState('')
+  const [lastUpdated, setLastUpdated] = useState(null)
+  const [search, setSearch] = useState('')
   const [filterType, setFilterType] = useState('All')
   const [filterSource, setFilterSource] = useState('All')
   const [filterConfidence, setFilterConfidence] = useState('All')
   const [filterStatus, setFilterStatus] = useState('All')
-  const [filterNewOnly, setFilterNewOnly] = useState(false)
-  const [filterCountry, setFilterCountry] = useState('All')
-  const [filterHosting, setFilterHosting] = useState(false)
-  const [filterProxy, setFilterProxy] = useState(false)
   const [page, setPage] = useState(1)
-  const [generatedKQL, setGeneratedKQL] = useState('')
+  const [selected, setSelected] = useState(new Set())
+  const [expandedRow, setExpandedRow] = useState(null)
   const [showKQLModal, setShowKQLModal] = useState(false)
+  const [generatedKQL, setGeneratedKQL] = useState('')
+  const [sortBy, setSortBy] = useState('date')
+  const [sortDir, setSortDir] = useState('desc')
+  const [whitelistedIPs, setWhitelistedIPs] = useState(
+    JSON.parse(localStorage.getItem('iocWhitelist') || '[]')
+  )
+  const [showWhitelist, setShowWhitelist] = useState(false)
   const [copyMsg, setCopyMsg] = useState('')
-  const [enrichmentMap, setEnrichmentMap] = useState({})
-  const [enrichingSet, setEnrichingSet] = useState(new Set())
-  const [expandedIndicator, setExpandedIndicator] = useState(null)
-  const [enrichProgress, setEnrichProgress] = useState(null)
+  const [whitelistConfirm, setWhitelistConfirm] = useState(null)
 
-  const loadIOCs = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    setLoadProgress(0)
-
-    const progressTimer = setInterval(() => {
-      setLoadProgress((p) => Math.min(p + 8, 90))
-    }, 400)
-
-    try {
-      const { iocs: live, feedStatus: status } = await fetchAllIOCs()
-      const merged = mergeIocLists(live, localIocs.map(normalizeLocalIoc))
-      setFeedStatus(status)
-      setTotalCount(merged.length)
-      setIocs(merged)
-      setLiveIOCs(merged)
-      setIocLoaded(true)
-      onIocCountChange?.(merged.length)
-      const baseline = visitBaselineRef.current
-      const newCount = merged.filter((ioc) =>
-        isNewSinceVisit(ioc.dateAdded, baseline)
-      ).length
-      setNewIocCount(newCount)
-      onNewIocCountChange?.(newCount)
-      setLastUpdated(new Date())
-      setLoadProgress(100)
-
-      const cached = {}
-      merged.forEach((ioc) => {
-        const c = getCachedEnrichment(ioc.indicator)
-        if (c) cached[ioc.indicator] = c
-      })
-      setEnrichmentMap((prev) => ({ ...prev, ...cached }))
-    } catch (err) {
-      setError(err.message || 'Failed to load live IOCs')
-      const merged = mergeIocLists([], localIocs.map(normalizeLocalIoc))
-      setIocs(merged)
-      setLiveIOCs(merged)
-      setIocLoaded(true)
-      setTotalCount(merged.length)
-      onIocCountChange?.(merged.length)
-      const baseline = visitBaselineRef.current
-      const newCount = merged.filter((ioc) =>
-        isNewSinceVisit(ioc.dateAdded, baseline)
-      ).length
-      setNewIocCount(newCount)
-      onNewIocCountChange?.(newCount)
-      setFeedStatus(
-        Object.fromEntries(Object.keys(FEED_LABELS).map((k) => [k, false]))
-      )
-    } finally {
-      clearInterval(progressTimer)
-      setLoading(false)
-      setTimeout(() => setLoadProgress(0), 600)
-    }
-  }, [onIocCountChange, onNewIocCountChange, setLiveIOCs, setIocLoaded])
+  const feedConfig = JSON.parse(localStorage.getItem('feedConfig') || '{}')
 
   useEffect(() => {
     loadIOCs()
-  }, [loadIOCs])
-
-  useEffect(() => {
-    setPage(1)
-  }, [
-    searchTerm,
-    filterType,
-    filterSource,
-    filterConfidence,
-    filterStatus,
-    filterNewOnly,
-    filterCountry,
-    filterHosting,
-    filterProxy,
-  ])
-
-  useEffect(() => {
-    if (!iocTabActive) return
-    visitBaselineRef.current = new Date().toISOString().slice(0, 10)
-    setNewIocCount(0)
-    onNewIocCountChange?.(0)
-  }, [iocTabActive, onNewIocCountChange])
-
-  useEffect(() => {
-    if (!highlightId && !highlightTerm) return
-    if (highlightTerm) setSearchTerm(highlightTerm)
-    requestAnimationFrame(() => {
-      document
-        .getElementById(`ioc-row-${encodeURIComponent(highlightId)}`)
-        ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      onHighlightDone?.()
-    })
-  }, [highlightId, highlightTerm, onHighlightDone, iocs.length])
-
-  const countryOptions = useMemo(() => {
-    const countries = new Set()
-    iocs.forEach((ioc) => {
-      const e = getEnrichmentFor(ioc, enrichmentMap)
-      if (e?.country) countries.add(e.country)
-    })
-    return ['All', ...[...countries].sort()]
-  }, [iocs, enrichmentMap])
-
-  const runEnrich = useCallback(async (ioc) => {
-    const key = ioc.indicator
-    setEnrichingSet((prev) => new Set(prev).add(key))
-    try {
-      let data = getCachedEnrichment(key)
-      if (!data?.enriched) {
-        data = await enrichIOC(ioc)
-        if (data?.enriched) setCachedEnrichment(key, data)
-      }
-      setEnrichmentMap((prev) => ({ ...prev, [key]: data }))
-    } finally {
-      setEnrichingSet((prev) => {
-        const next = new Set(prev)
-        next.delete(key)
-        return next
-      })
-    }
   }, [])
 
-  const enrichSelected = async () => {
-    const list = iocs.filter((i) => selectedIOCs.has(i.indicator))
-    if (!list.length) return
-    setEnrichProgress({ current: 0, total: list.length })
-    for (let i = 0; i < list.length; i++) {
-      setEnrichProgress({ current: i + 1, total: list.length })
-      await runEnrich(list[i])
-      if (i < list.length - 1) {
-        await new Promise((r) => setTimeout(r, ENRICH_DELAY_MS))
-      }
+  async function loadIOCs() {
+    setLoading(true)
+    setError(null)
+    try {
+      const result = await fetchAllIOCs()
+      const combined = result?.iocs?.length > 0 ? result.iocs : localIOCs
+      
+      // Filter out disabled feeds
+      const filteredByConfig = combined.filter(ioc => {
+        if (!ioc.source || !feedConfig) return true
+        const feedKey = Object.keys(FEED_LABELS).find(k => FEED_LABELS[k] === ioc.source)
+        if (feedKey && feedConfig[feedKey] === false) return false
+        return true
+      })
+      
+      // Filter out whitelisted indicators
+      const filtered = filteredByConfig.filter(ioc => !whitelistedIPs.includes(ioc.indicator))
+      
+      setIocs(filtered)
+      setFeedStatus(result?.feedStatus || {})
+      setLastUpdated(new Date())
+      window.dispatchEvent(new CustomEvent('iocCountUpdate', { detail: { count: filtered.length } }))
+    } catch (err) {
+      console.error('IOC fetch error:', err)
+      const filtered = localIOCs.filter(ioc => !whitelistedIPs.includes(ioc.indicator))
+      setIocs(filtered)
+      setError('Live feeds unavailable - showing cached data')
+      window.dispatchEvent(new CustomEvent('iocCountUpdate', { detail: { count: filtered.length } }))
+    } finally {
+      setLoading(false)
     }
-    setEnrichProgress(null)
   }
 
-  const sourceOptions = useMemo(
-    () => ['All', ...Object.values(FEED_LABELS), 'Threat Intel Feed', 'Hunt Finding Q005'],
-    []
-  )
+  function addToWhitelist(indicator) {
+    const list = [...whitelistedIPs, indicator]
+    setWhitelistedIPs(list)
+    localStorage.setItem('iocWhitelist', JSON.stringify(list))
+    setIocs(prev => prev.filter(i => i.indicator !== indicator))
+    setWhitelistConfirm(null)
+  }
 
-  const filtered = useMemo(() => {
-    const term = searchTerm.trim().toLowerCase()
-    const baseline = visitBaselineRef.current
-    return iocs.filter((ioc) => {
-      if (filterNewOnly && !isNewSinceVisit(ioc.dateAdded, baseline)) return false
-      if (!matchesType(ioc, filterType)) return false
-      if (filterSource !== 'All' && ioc.source !== filterSource) return false
-      if (filterConfidence !== 'All' && ioc.confidence !== filterConfidence) return false
-      if (filterStatus !== 'All' && ioc.status !== filterStatus) return false
+  function removeFromWhitelist(indicator) {
+    const list = whitelistedIPs.filter(i => i !== indicator)
+    setWhitelistedIPs(list)
+    localStorage.setItem('iocWhitelist', JSON.stringify(list))
+    loadIOCs()
+  }
 
-      const enrich = getEnrichmentFor(ioc, enrichmentMap)
-      if (filterCountry !== 'All' && enrich?.country !== filterCountry) return false
-      if (filterHosting && !enrich?.isHosting) return false
-      if (filterProxy && !enrich?.isProxy) return false
+  function generateIOCKQL(ioc) {
+    if (ioc.type === 'IP') return `CommonSecurityLog\n| where SourceIP == "${ioc.indicator}" or DestinationIP == "${ioc.indicator}"\n| where DeviceVendor in ("Fortinet","Palo Alto Networks","Sophos","Trend Micro")\n| where TimeGenerated > ago(1d)\n| project TimeGenerated, DeviceVendor, SourceIP, DestinationIP, Activity, DeviceAction\n| order by TimeGenerated desc` 
+    if (ioc.type === 'Domain') return `ASimDnsActivityLogs\n| where DnsQuery has "${ioc.indicator}"\n| where TimeGenerated > ago(1d)\n| project TimeGenerated, DnsQuery, SrcIpAddr, DnsResponseCode\n| order by TimeGenerated desc` 
+    if (ioc.type === 'SHA256') return `DeviceFileEvents\n| where SHA256 == "${ioc.indicator}"\n| where TimeGenerated > ago(1d)\n| project TimeGenerated, DeviceName, FileName, SHA256, InitiatingProcessFileName\n| order by TimeGenerated desc` 
+    if (ioc.type === 'URL') return `DeviceNetworkEvents\n| where RemoteUrl has "${ioc.indicator}"\n| where TimeGenerated > ago(1d)\n| project TimeGenerated, DeviceName, RemoteUrl, RemoteIP, InitiatingProcessFileName\n| order by TimeGenerated desc` 
+    return `CommonSecurityLog\n| where Message has "${ioc.indicator}"\n| where TimeGenerated > ago(1d)\n| order by TimeGenerated desc` 
+  }
 
-      if (!term) return true
-      return [
-        ioc.indicator,
-        ioc.type,
-        ioc.ttp,
-        ioc.ttpId,
-        ioc.source,
-        enrich?.country,
-        enrich?.org,
-      ]
-        .join(' ')
-        .toLowerCase()
-        .includes(term)
-    })
-  }, [
-    iocs,
-    searchTerm,
-    filterType,
-    filterSource,
-    filterConfidence,
-    filterStatus,
-    filterNewOnly,
-    filterCountry,
-    filterHosting,
-    filterProxy,
-    enrichmentMap,
-  ])
+  function copyText(text) {
+    navigator.clipboard.writeText(text).catch(() => {})
+    setCopyMsg('Copied!')
+    setTimeout(() => setCopyMsg(''), 2000)
+  }
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  function exportCSV() {
+    const headers = ['Indicator','Type','TTP','TTPId','Malware Family','Log Source','Confidence','Status','Source','Date Added']
+    const rows = filtered.map(i => 
+      [i.indicator,i.type,i.ttp,i.ttpId,i.malwareFamily,i.logSource,i.confidence,i.status,i.source,i.dateAdded]
+      .map(v => `"${(v||'').replace(/"/g,'""')}"`)
+      .join(',')
+    )
+    const csv = [headers.join(','), ...rows].join('\n')
+    const blob = new Blob([csv], {type:'text/csv'})
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = `iocs-${new Date().toISOString().split('T')[0]}.csv` 
+    a.click()
+  }
 
-  const paginated = useMemo(() => {
-    const start = (page - 1) * PAGE_SIZE
-    return filtered.slice(start, start + PAGE_SIZE)
-  }, [filtered, page])
-
-  const stats = useMemo(() => {
-    const norm = (t) => String(t || '').toLowerCase()
-    return {
-      total: iocs.length,
-      ips: iocs.filter((i) => norm(i.type) === 'ip' || norm(i.type).includes('ip')).length,
-      domainsUrls: iocs.filter((i) => norm(i.type) === 'domain' || norm(i.type) === 'url').length,
-      hashes: iocs.filter((i) =>
-        ['hash', 'sha256', 'md5'].some((h) => norm(i.type).includes(h))
-      ).length,
-      active: iocs.filter((i) => i.status === 'active').length,
-      today: iocs.filter((i) => i.dateAdded === today).length,
+  const filtered = iocs.filter(ioc => {
+    const term = search.toLowerCase()
+    if (term && !JSON.stringify(ioc).toLowerCase().includes(term)) return false
+    if (filterType !== 'All' && ioc.type !== filterType) return false
+    if (filterSource !== 'All' && ioc.source !== filterSource) return false
+    if (filterConfidence !== 'All' && ioc.confidence !== filterConfidence) return false
+    if (filterStatus !== 'All' && ioc.status !== filterStatus) return false
+    return true
+  }).sort((a, b) => {
+    let valA, valB
+    if (sortBy === 'date') {
+      valA = new Date(a.dateAdded).getTime() || 0
+      valB = new Date(b.dateAdded).getTime() || 0
+    } else if (sortBy === 'confidence') {
+      const confOrder = { High: 3, Medium: 2, Low: 1 }
+      valA = confOrder[a.confidence] || 0
+      valB = confOrder[b.confidence] || 0
+    } else if (sortBy === 'source') {
+      valA = a.source || ''
+      valB = b.source || ''
+    } else if (sortBy === 'type') {
+      valA = a.type || ''
+      valB = b.type || ''
     }
-  }, [iocs])
+    if (sortDir === 'asc') return valA > valB ? 1 : -1
+    return valA < valB ? 1 : -1
+  })
 
+  const totalPages = Math.ceil(filtered.length / PER_PAGE)
+  const paginated = filtered.slice((page-1)*PER_PAGE, page*PER_PAGE)
+  const sources = ['All', ...new Set(iocs.map(i => i.source).filter(Boolean))]
+  const types = ['All', ...new Set(iocs.map(i => i.type).filter(Boolean))]
   const feedsOnline = Object.values(feedStatus).filter(Boolean).length
+  const minutesAgo = lastUpdated ? Math.max(0, Math.floor((Date.now() - lastUpdated.getTime()) / 60000)) : null
 
-  const minutesAgo = lastUpdated
-    ? Math.max(0, Math.floor((Date.now() - lastUpdated.getTime()) / 60000))
-    : null
-
-  const toggleSelect = (indicator) => {
-    setSelectedIOCs((prev) => {
-      const next = new Set(prev)
-      if (next.has(indicator)) next.delete(indicator)
-      else next.add(indicator)
-      return next
-    })
+  const stats = {
+    total: iocs.length,
+    ips: iocs.filter(i => i.type === 'IP').length,
+    domainsUrls: iocs.filter(i => ['Domain','URL'].includes(i.type)).length,
+    hashes: iocs.filter(i => i.type === 'SHA256').length,
+    active: iocs.filter(i => i.status === 'active').length,
+    today: iocs.filter(i => i.dateAdded === new Date().toISOString().split('T')[0]).length,
   }
 
-  const toggleSelectAll = () => {
-    const visible = paginated.map((i) => i.indicator)
-    const allSelected = visible.every((id) => selectedIOCs.has(id))
-    setSelectedIOCs((prev) => {
-      const next = new Set(prev)
-      if (allSelected) visible.forEach((id) => next.delete(id))
-      else visible.forEach((id) => next.add(id))
-      return next
-    })
+  function toggleSelect(indicator) {
+    const s = new Set(selected)
+    s.has(indicator) ? s.delete(indicator) : s.add(indicator)
+    setSelected(s)
   }
 
-  const clearFilters = () => {
-    setSearchTerm('')
+  function toggleSelectAll() {
+    const allSelected = paginated.every(i => selected.has(i.indicator))
+    setSelected(allSelected ? new Set() : new Set(paginated.map(i => i.indicator)))
+  }
+
+  function clearFilters() {
+    setSearch('')
     setFilterType('All')
     setFilterSource('All')
     setFilterConfidence('All')
     setFilterStatus('All')
-    setFilterNewOnly(false)
-    setFilterCountry('All')
-    setFilterHosting(false)
-    setFilterProxy(false)
     setPage(1)
   }
 
-  const selectedObjects = iocs.filter((i) => selectedIOCs.has(i.indicator))
-
-  const handleGenerateKQL = () => {
-    setGeneratedKQL(generateWatchlistKQL(selectedObjects))
-    setShowKQLModal(true)
-  }
-
-  const exportCsv = () => {
-    const rows = filtered.length ? filtered : iocs
-    const lines = [
-      CSV_HEADERS.join(','),
-      ...rows.map((ioc) => {
-        const e = getEnrichmentFor(ioc, enrichmentMap)
-        return [
-          ioc.indicator,
-          ioc.type,
-          ioc.ttp,
-          ioc.ttpId,
-          e?.country || '',
-          e?.org || e?.isp || '',
-          ioc.malwareFamily,
-          ioc.logSource,
-          ioc.confidence,
-          ioc.status,
-          ioc.source,
-          ioc.dateAdded,
-        ]
-          .map(escapeCsv)
-          .join(',')
-      }),
-    ]
-    const blob = new Blob([lines.join('\n')], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = 'ioc-tracker.csv'
-    link.click()
-    URL.revokeObjectURL(url)
-  }
-
-  const copyAllIOCs = async () => {
-    const text = (filtered.length ? filtered : iocs)
-      .map((i) => `${i.type}\t${i.indicator}\t${i.source}`)
-      .join('\n')
-    try {
-      await navigator.clipboard.writeText(text)
-      setCopyMsg('Copied!')
-      setTimeout(() => setCopyMsg(''), 2000)
-    } catch {
-      setCopyMsg('Copy failed')
+  function handleSort(field) {
+    if (sortBy === field) {
+      setSortDir(sortDir === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortBy(field)
+      setSortDir('desc')
     }
   }
 
-  const copyKql = async () => {
-    try {
-      await navigator.clipboard.writeText(generatedKQL)
-      setCopyMsg('KQL copied!')
-      setTimeout(() => setCopyMsg(''), 2000)
-    } catch {
-      setCopyMsg('Copy failed')
-    }
-  }
+  const confColor = c => c==='High'?'#f85149':c==='Medium'?'#d29922':'#8b949e'
+  const statusColor = s => s==='active'?'#f85149':s==='investigating'?'#d29922':'#3fb950'
 
-  const COL_COUNT = 13
+  if (loading) {
+    return (
+      <div style={{textAlign:'center',padding:'3rem',color:'#8b949e'}}>
+        <div style={{fontSize:32,marginBottom:16}}>⟳</div>
+        <div style={{fontSize:14}}>Fetching from threat intel feeds...</div>
+        <div style={{fontSize:12,marginTop:8}}>ThreatFox · URLhaus · FeodoTracker · MalwareBazaar · EmergingThreats · CINS Army · AlienVault</div>
+      </div>
+    )
+  }
 
   return (
-    <div className="ioc-tracker ioc-tracker-live">
-      <div className="ioc-top-bar topbar">
-        <div className="ioc-title-group">
-          <h2>IOC Tracker</h2>
-          <span className="live-badge">
-            <span className="live-dot" aria-hidden="true" />
-            LIVE
+    <div>
+      {error && <div style={{background:'#3d1a1a',border:'1px solid #f85149',borderRadius:6,padding:'8px 12px',marginBottom:12,fontSize:12,color:'#f85149'}}>{error}</div>}
+      
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12,flexWrap:'wrap',gap:8}}>
+        <div style={{display:'flex',alignItems:'center',gap:8}}>
+          <span style={{fontSize:16,fontWeight:600,color:'#f0f6fc'}}>IOC Tracker</span>
+          <span style={{width:8,height:8,borderRadius:'50%',background:'#3fb950',display:'inline-block',boxShadow:'0 0 6px #3fb950',animation:'pulse 2s infinite'}}></span>
+          <span style={{fontSize:11,color:'#8b949e'}}>LIVE</span>
+          <span style={{fontSize:11,padding:'2px 8px',background:'#0d2045',color:'#58a6ff',borderRadius:20,border:'1px solid #58a6ff44'}}>
+            {iocs.length} IOCs from {FEED_COUNT} feeds ({feedsOnline} online)
           </span>
-          <span className="ioc-count-badge">
-            {totalCount} IOCs from {FEED_COUNT} feeds
-            {feedsOnline > 0 && ` (${feedsOnline} online)`}
-          </span>
-          {newIocCount > 0 && (
-            <span className="ioc-new-badge" aria-label={`${newIocCount} new IOCs`}>
-              {newIocCount} new
-            </span>
-          )}
         </div>
-        <div className="ioc-top-actions">
-          {minutesAgo !== null && (
-            <span className="last-updated">
-              Last updated: {minutesAgo === 0 ? 'just now' : `${minutesAgo} mins ago`}
-            </span>
-          )}
-          <button
-            type="button"
-            className="refresh-btn"
-            onClick={loadIOCs}
-            disabled={loading}
-          >
-            {loading ? 'Refreshing…' : 'Refresh'}
-          </button>
+        <div style={{display:'flex',gap:8,alignItems:'center'}}>
+          <span style={{fontSize:11,color:'#8b949e'}}>Updated: {minutesAgo === 0 ? 'just now' : `${minutesAgo} mins ago`}</span>
+          <button onClick={loadIOCs} style={{padding:'5px 12px',background:'#58a6ff',border:'none',borderRadius:6,color:'#0d1117',fontSize:12,fontWeight:600,cursor:'pointer'}}>↻ Refresh</button>
+          <button onClick={exportCSV} style={{padding:'5px 12px',background:'#21262d',border:'1px solid #30363d',borderRadius:6,color:'#c9d1d9',fontSize:12,cursor:'pointer'}}>Export CSV</button>
+          <button onClick={() => setShowWhitelist(true)} style={{padding:'5px 12px',background:'#21262d',border:'1px solid #30363d',borderRadius:6,color:'#c9d1d9',fontSize:12,cursor:'pointer'}}>Whitelist ({whitelistedIPs.length})</button>
         </div>
       </div>
 
-      <div className="feed-status-row">
-        {Object.entries(FEED_LABELS).map(([key, label]) => (
-          <span
-            key={key}
-            className={`feed-badge ${feedStatus[key] ? 'feed-ok' : 'feed-fail'}`}
-          >
-            {label} {feedStatus[key] ? '✓' : '✗'}
+      <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:12}}>
+        {Object.entries(feedStatus).map(([feed,ok]) => (
+          <span key={feed} style={{fontSize:10,padding:'2px 8px',borderRadius:20,background:ok?'#0d2d1a':'#3d1a1a',color:ok?'#3fb950':'#f85149',border:`1px solid ${ok?'#3fb95040':'#f8514940'}`}}>
+            {feed} {ok?'✓':'✗'}
           </span>
         ))}
       </div>
 
-      {loading && (
-        <div className="ioc-load-progress-wrap">
-          <p className="ioc-loading-msg">
-            Fetching from {FEED_COUNT} threat intel feeds…
-          </p>
-          <div
-            className="ioc-progress-track"
-            role="progressbar"
-            aria-valuenow={loadProgress}
-            aria-valuemin={0}
-            aria-valuemax={100}
-          >
-            <div className="ioc-progress-bar" style={{ width: `${loadProgress}%` }} />
+      <div style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:8,marginBottom:12}}>
+        {[
+          ['Total', stats.total, '#58a6ff'],
+          ['IPs', stats.ips, '#d29922'],
+          ['Domains/URLs', stats.domainsUrls, '#3fb950'],
+          ['Hashes', stats.hashes, '#a371f7'],
+          ['Active', stats.active, '#f85149'],
+          ['Today', stats.today, '#39d3bb'],
+        ].map(([label,val,color]) => (
+          <div key={label} style={{background:'#161b22',border:'1px solid #30363d',borderRadius:8,padding:'10px 12px'}}>
+            <div style={{fontSize:20,fontWeight:600,color}}>{val}</div>
+            <div style={{fontSize:10,color:'#8b949e',textTransform:'uppercase',letterSpacing:'.06em'}}>{label}</div>
           </div>
-        </div>
-      )}
-
-      {error && <p className="ioc-error-banner">{error} — showing local IOCs only.</p>}
-
-      <div className="ioc-filter-row">
-        <input
-          type="search"
-          placeholder="Search indicators, types, TTPs, sources…"
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="ioc-search-input"
-          aria-label="Search IOCs"
-          disabled={loading && iocs.length === 0}
-        />
-        <select value={filterType} onChange={(e) => setFilterType(e.target.value)} aria-label="Filter by type">
-          {TYPE_OPTIONS.map((t) => (
-            <option key={t} value={t}>
-              Type: {t}
-            </option>
-          ))}
-        </select>
-        <select value={filterSource} onChange={(e) => setFilterSource(e.target.value)} aria-label="Filter by source">
-          {sourceOptions.map((s) => (
-            <option key={s} value={s}>
-              Source: {s}
-            </option>
-          ))}
-        </select>
-        <select
-          value={filterConfidence}
-          onChange={(e) => setFilterConfidence(e.target.value)}
-          aria-label="Filter by confidence"
-        >
-          {['All', 'High', 'Medium', 'Low'].map((c) => (
-            <option key={c} value={c}>
-              Confidence: {c}
-            </option>
-          ))}
-        </select>
-        <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} aria-label="Filter by status">
-          {['All', 'active', 'investigating', 'watchlist'].map((s) => (
-            <option key={s} value={s}>
-              Status: {s}
-            </option>
-          ))}
-        </select>
-        <select
-          value={filterCountry}
-          onChange={(e) => setFilterCountry(e.target.value)}
-          aria-label="Filter by country"
-        >
-          {countryOptions.map((c) => (
-            <option key={c} value={c}>
-              Country: {c}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          className={`filter-toggle-btn ${filterHosting ? 'active' : ''}`}
-          onClick={() => setFilterHosting((v) => !v)}
-        >
-          Hosting/VPS
-        </button>
-        <button
-          type="button"
-          className={`filter-toggle-btn ${filterProxy ? 'active' : ''}`}
-          onClick={() => setFilterProxy((v) => !v)}
-        >
-          Proxy/VPN
-        </button>
-        <button
-          type="button"
-          className={`filter-btn-new ${filterNewOnly ? 'active' : ''}`}
-          onClick={() => setFilterNewOnly((v) => !v)}
-        >
-          New
-        </button>
-        <button type="button" className="clear-filters-btn" onClick={clearFilters}>
-          Clear filters
-        </button>
+        ))}
       </div>
 
-      <div className="ioc-stats-row ioc-stats-row-6 metrics">
-        <div className="ioc-stat-card metric-card">
-          <span className="ioc-stat-value metric-val">{stats.total}</span>
-          <span className="ioc-stat-label">Total</span>
-        </div>
-        <div className="ioc-stat-card metric-card">
-          <span className="ioc-stat-value metric-val">{stats.ips}</span>
-          <span className="ioc-stat-label">IPs</span>
-        </div>
-        <div className="ioc-stat-card metric-card">
-          <span className="ioc-stat-value metric-val">{stats.domainsUrls}</span>
-          <span className="ioc-stat-label">Domains/URLs</span>
-        </div>
-        <div className="ioc-stat-card metric-card">
-          <span className="ioc-stat-value metric-val">{stats.hashes}</span>
-          <span className="ioc-stat-label">Hashes</span>
-        </div>
-        <div className="ioc-stat-card metric-card">
-          <span className="ioc-stat-value metric-val">{stats.active}</span>
-          <span className="ioc-stat-label">Active</span>
-        </div>
-        <div className="ioc-stat-card metric-card">
-          <span className="ioc-stat-value metric-val">{stats.today}</span>
-          <span className="ioc-stat-label">Today</span>
-        </div>
+      <div style={{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap'}}>
+        <input value={search} onChange={e=>{setSearch(e.target.value);setPage(1)}} placeholder="Search indicators, TTPs, sources..." style={{flex:1,minWidth:200,padding:'7px 12px',background:'#0d1117',border:'1px solid #30363d',borderRadius:6,color:'#c9d1d9',fontSize:12,outline:'none'}} />
+        <select value={filterType} onChange={e=>{setFilterType(e.target.value);setPage(1)}} style={{padding:'7px 10px',background:'#161b22',border:'1px solid #30363d',borderRadius:6,color:'#c9d1d9',fontSize:12}}>
+          {types.map(t=><option key={t}>{t}</option>)}
+        </select>
+        <select value={filterSource} onChange={e=>{setFilterSource(e.target.value);setPage(1)}} style={{padding:'7px 10px',background:'#161b22',border:'1px solid #30363d',borderRadius:6,color:'#c9d1d9',fontSize:12}}>
+          {sources.map(s=><option key={s}>{s}</option>)}
+        </select>
+        <select value={filterConfidence} onChange={e=>{setFilterConfidence(e.target.value);setPage(1)}} style={{padding:'7px 10px',background:'#161b22',border:'1px solid #30363d',borderRadius:6,color:'#c9d1d9',fontSize:12}}>
+          {['All','High','Medium','Low'].map(c=><option key={c}>{c}</option>)}
+        </select>
+        <select value={filterStatus} onChange={e=>{setFilterStatus(e.target.value);setPage(1)}} style={{padding:'7px 10px',background:'#161b22',border:'1px solid #30363d',borderRadius:6,color:'#c9d1d9',fontSize:12}}>
+          {['All','active','watchlist','investigating'].map(s=><option key={s}>{s}</option>)}
+        </select>
+        <select value={sortBy} onChange={e=>handleSort(e.target.value)} style={{padding:'7px 10px',background:'#161b22',border:'1px solid #30363d',borderRadius:6,color:'#c9d1d9',fontSize:12}}>
+          <option value="date">Sort: Date ({sortDir})</option>
+          <option value="confidence">Sort: Confidence ({sortDir})</option>
+          <option value="source">Sort: Source ({sortDir})</option>
+          <option value="type">Sort: Type ({sortDir})</option>
+        </select>
+        <button onClick={clearFilters} style={{padding:'7px 10px',background:'#21262d',border:'1px solid #30363d',borderRadius:6,color:'#8b949e',fontSize:12,cursor:'pointer'}}>Clear</button>
       </div>
 
-      {loading && iocs.length === 0 ? (
-        <LoadingSkeleton />
-      ) : (
-        <>
-          <div className="ioc-table-wrapper">
-            <table className="ioc-table">
-              <thead>
-                <tr>
-                  <th className="col-check">
-                    <input
-                      type="checkbox"
-                      checked={
-                        paginated.length > 0 &&
-                        paginated.every((i) => selectedIOCs.has(i.indicator))
-                      }
-                      onChange={toggleSelectAll}
-                      aria-label="Select all on this page"
-                    />
-                  </th>
-                  <th className="col-indicator">Indicator</th>
-                  <th className="col-type">Type</th>
-                  <th className="col-ttp">TTP</th>
-                  <th className="col-malware">Malware</th>
-                  <th className="col-country">Country</th>
-                  <th className="col-asn">ASN/ISP</th>
-                  <th className="col-log">Log Source</th>
-                  <th className="col-conf">Conf.</th>
-                  <th className="col-status">Status</th>
-                  <th className="col-source">Source</th>
-                  <th className="col-date">Date</th>
-                  <th className="col-enrich" />
+      <div style={{overflowX:'auto',marginBottom:12}}>
+        <table style={{width:'100%',borderCollapse:'collapse',fontSize:12}}>
+          <thead>
+            <tr style={{borderBottom:'1px solid #30363d'}}>
+              <th style={{padding:'8px',textAlign:'left',width:32}}><input type="checkbox" checked={paginated.length>0 && paginated.every(i=>selected.has(i.indicator))} onChange={toggleSelectAll} /></th>
+              <th style={{padding:'8px',textAlign:'left',color:'#8b949e',fontSize:10,textTransform:'uppercase',letterSpacing:'.06em',fontWeight:500}}>Indicator</th>
+              <th style={{padding:'8px',textAlign:'left',color:'#8b949e',fontSize:10,textTransform:'uppercase',letterSpacing:'.06em',fontWeight:500}}>Type</th>
+              <th style={{padding:'8px',textAlign:'left',color:'#8b949e',fontSize:10,textTransform:'uppercase',letterSpacing:'.06em',fontWeight:500'}}>TTP</th>
+              <th style={{padding:'8px',textAlign:'left',color:'#8b949e',fontSize:10,textTransform:'uppercase',letterSpacing:'.06em',fontWeight:500}}>Malware</th>
+              <th style={{padding:'8px',textAlign:'left',color:'#8b949e',fontSize:10,textTransform:'uppercase',letterSpacing:'.06em',fontWeight:500'}}>Log Source</th>
+              <th style={{padding:'8px',textAlign:'left',color:'#8b949e',fontSize:10,textTransform:'uppercase',letterSpacing:'.06em',fontWeight:500'}}>Confidence</th>
+              <th style={{padding:'8px',textAlign:'left',color:'#8b949e',fontSize:10,textTransform:'uppercase',letterSpacing:'.06em',fontWeight:500}}>Status</th>
+              <th style={{padding:'8px',textAlign:'left',color:'#8b949e',fontSize:10,textTransform:'uppercase',letterSpacing:'.06em',fontWeight:500}}>Source</th>
+              <th style={{padding:'8px',textAlign:'left',color:'#8b949e',fontSize:10,textTransform:'uppercase',letterSpacing:'.06em',fontWeight:500}}>Date</th>
+              <th style={{padding:'8px',textAlign:'left',color:'#8b949e',fontSize:10,textTransform:'uppercase',letterSpacing:'.06em',fontWeight:500'}}>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {paginated.map((ioc,i) => (
+              <>
+                <tr key={ioc.indicator+i} onClick={()=>setExpandedRow(expandedRow===i?null:i)} style={{borderBottom:'1px solid #21262d',cursor:'pointer',background:expandedRow===i?'#1c2128':'transparent'}} onMouseEnter={e=>e.currentTarget.style.background='#1c2128'} onMouseLeave={e=>e.currentTarget.style.background=expandedRow===i?'#1c2128':'transparent'}}>
+                  <td style={{padding:'8px'}} onClick={e=>e.stopPropagation()}><input type="checkbox" checked={selected.has(ioc.indicator)} onChange={()=>toggleSelect(ioc.indicator)} /></td>
+                  <td style={{padding:'8px',color:'#58a6ff',maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontFamily:'monospace',fontSize:11}} title={ioc.indicator}>{ioc.indicator}</td>
+                  <td style={{padding:'8px'}}><span style={{fontSize:10,padding:'2px 6px',borderRadius:4,background:'#21262d',color:'#c9d1d9',border:'1px solid #30363d'}}>{ioc.type}</span></td>
+                  <td style={{padding:'8px',fontSize:11,color:'#c9d1d9',maxWidth:120,overflow:'hidden',textOverflow:'ellipsis'}}>{ioc.ttpId||ioc.ttp}</td>
+                  <td style={{padding:'8px',fontSize:11,color:'#8b949e',maxWidth:120,overflow:'hidden',textOverflow:'ellipsis'}}>{ioc.malwareFamily||'—'}</td>
+                  <td style={{padding:'8px',fontSize:11,color:'#8b949e'}}>{ioc.logSource}</td>
+                  <td style={{padding:'8px'}}><span style={{color:confColor(ioc.confidence),fontWeight:600,fontSize:11}}>{ioc.confidence}</span></td>
+                  <td style={{padding:'8px'}}><span style={{display:'inline-block',width:6,height:6,borderRadius:'50%',background:statusColor(ioc.status),marginRight:6}}></span><span style={{fontSize:11,color:'#c9d1d9',textTransform:'capitalize'}}>{ioc.status}</span></td>
+                  <td style={{padding:'8px',fontSize:11,color:'#8b949e'}}>{ioc.source}</td>
+                  <td style={{padding:'8px',fontSize:11,color:'#8b949e',whiteSpace:'nowrap'}}>{ioc.dateAdded}</td>
+                  <td style={{padding:'8px'}}>
+                    <div style={{display:'flex',gap:4}}>
+                      <button onClick={e=>{e.stopPropagation();setExpandedRow(expandedRow===i?null:i)}} style={{padding:'2px 6px',background:'#21262d',border:'1px solid #30363d',borderRadius:4,color:'#c9d1d9',fontSize:10,cursor:'pointer'}}>🔍</button>
+                      <button onClick={e=>{e.stopPropagation();copyText(generateIOCKQL(ioc))}} style={{padding:'2px 6px',background:'#21262d',border:'1px solid #30363d',borderRadius:4,color:'#c9d1d9',fontSize:10,cursor:'pointer'}}>📋</button>
+                      <button onClick={e=>{e.stopPropagation();setWhitelistConfirm(ioc.indicator)}} style={{padding:'2px 6px',background:'#21262d',border:'1px solid #30363d',borderRadius:4,color:'#c9d1d9',fontSize:10,cursor:'pointer'}}>🚫</button>
+                    </div>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {paginated.map((ioc, index) => {
-                  const enrich = getEnrichmentFor(ioc, enrichmentMap)
-                  const isEnriching = enrichingSet.has(ioc.indicator)
-                  const isEnriched = enrich?.enriched
-                  const rowHighlight =
-                    highlightId === ioc.indicator ||
-                    (highlightTerm &&
-                      [ioc.indicator, ioc.type, ioc.ttp, ioc.malwareFamily, ioc.source]
-                        .join(' ')
-                        .toLowerCase()
-                        .includes(highlightTerm.toLowerCase()))
-                  const isExpanded = expandedIndicator === ioc.indicator
-                  const isIP =
-                    String(ioc.type || '').toUpperCase() === 'IP' ||
-                    String(ioc.type || '').toLowerCase().includes('ip')
+                {expandedRow===i && (
+                  <tr key={'exp'+i} style={{background:'#0d1117'}}>
+                    <td colSpan={11} style={{padding:'12px 16px'}}>
+                      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
+                        <div>
+                          <div style={{fontSize:11,color:'#8b949e',marginBottom:8,textTransform:'uppercase',letterSpacing:'.06em'}}>Full Indicator</div>
+                          <div style={{fontFamily:'monospace',fontSize:12,color:'#58a6ff',wordBreak:'break-all',marginBottom:8}}>{ioc.indicator}</div>
+                          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,fontSize:11}}>
+                            <div><span style={{color:'#8b949e'}}>Type:</span> <span style={{color:'#c9d1d9'}}>{ioc.type}</span></div>
+                            <div><span style={{color:'#8b949e'}}>Source:</span> <span style={{color:'#c9d1d9'}}>{ioc.source}</span></div>
+                            <div><span style={{color:'#8b949e'}}>TTP:</span> <span style={{color:'#c9d1d9'}}>{ioc.ttp}</span></div>
+                            <div><span style={{color:'#8b949e'}}>Malware:</span> <span style={{color:'#c9d1d9'}}>{ioc.malwareFamily||'Unknown'}</span></div>
+                            <div><span style={{color:'#8b949e'}}>Confidence:</span> <span style={{color:confColor(ioc.confidence)}}>{ioc.confidence}</span></div>
+                            <div><span style={{color:'#8b949e'}}>Status:</span> <span style={{color:'#c9d1d9'}}>{ioc.status}</span></div>
+                          </div>
+                          <div style={{display:'flex',gap:8,marginTop:12}}>
+                            <button onClick={()=>copyText(ioc.indicator)} style={{padding:'5px 10px',background:'#21262d',border:'1px solid #30363d',borderRadius:6,color:'#c9d1d9',fontSize:11,cursor:'pointer'}}>Copy IOC</button>
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{fontSize:11,color:'#8b949e',marginBottom:8,textTransform:'uppercase',letterSpacing:'.06em'}}>Sentinel KQL</div>
+                          <pre style={{background:'#161b22',border:'1px solid #30363d',borderRadius:6,padding:'10px',fontSize:10,fontFamily:'monospace',color:'#c9d1d9',whiteSpace:'pre-wrap',wordBreak:'break-all',margin:0,maxHeight:150,overflow:'auto'}}>{generateIOCKQL(ioc)}</pre>
+                          <div style={{display:'flex',gap:8,marginTop:8}}>
+                            <button onClick={()=>copyText(generateIOCKQL(ioc))} style={{padding:'5px 10px',background:'#21262d',border:'1px solid #30363d',borderRadius:6,color:'#c9d1d9',fontSize:11,cursor:'pointer'}}>Copy KQL</button>
+                            <a href="https://portal.azure.com/#blade/Microsoft_Azure_Monitoring_Logs/LogsBlade" target="_blank" rel="noreferrer" style={{padding:'5px 10px',background:'#0d2045',border:'1px solid #58a6ff44',borderRadius:6,color:'#58a6ff',fontSize:11,textDecoration:'none'}}>Open in Sentinel →</a>
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
-                  return (
-                    <Fragment key={`${ioc.indicator}-${index}`}>
-                      <tr
-                        id={`ioc-row-${encodeURIComponent(ioc.indicator)}`}
-                        className={`${rowHighlight ? 'search-highlight-flash' : ''} ${isExpanded ? 'ioc-row-expanded' : ''}`}
-                      >
-                        <td>
-                          <input
-                            type="checkbox"
-                            checked={selectedIOCs.has(ioc.indicator)}
-                            onChange={() => toggleSelect(ioc.indicator)}
-                            aria-label={`Select ${ioc.indicator}`}
-                          />
-                        </td>
-                        <td className="indicator-cell">
-                          <button
-                            type="button"
-                            className="indicator-link"
-                            title={ioc.indicator}
-                            onClick={() =>
-                              setExpandedIndicator(isExpanded ? null : ioc.indicator)
-                            }
-                          >
-                            {ioc.indicator}
-                          </button>
-                        </td>
-                        <td>
-                          <span className="type-badge">{ioc.type}</span>
-                        </td>
-                        <td>
-                          <span className="ttp-cell">
-                            {ioc.ttpId || ioc.ttp}
-                            {ioc.ttpId && <small>{ioc.ttp}</small>}
-                          </span>
-                        </td>
-                        <td className="malware-cell" title={ioc.malwareFamily}>
-                          {ioc.malwareFamily || '—'}
-                        </td>
-                        <td className="col-country">
-                          {isIP && isEnriched && enrich.country ? (
-                            <span title={enrich.country}>
-                              {countryFlag(enrich.countryCode)} {enrich.country}
-                            </span>
-                          ) : (
-                            '—'
-                          )}
-                        </td>
-                        <td className="col-asn" title={enrich?.org}>
-                          {isIP && isEnriched ? truncate(enrich.org || enrich.isp, 20) : '—'}
-                        </td>
-                        <td>{ioc.logSource}</td>
-                        <td>
-                          <span className={`confidence-${(ioc.confidence || '').toLowerCase()}`}>
-                            {ioc.confidence}
-                          </span>
-                        </td>
-                        <td>
-                          <span className="status-cell">
-                            <span
-                              className="status-dot"
-                              style={{
-                                backgroundColor:
-                                  STATUS_DOT[ioc.status] || 'var(--text-muted)',
-                              }}
-                              aria-hidden="true"
-                            />
-                            {ioc.status}
-                          </span>
-                        </td>
-                        <td>{ioc.source}</td>
-                        <td>{ioc.dateAdded}</td>
-                        <td>
-                          <button
-                            type="button"
-                            className={`enrich-btn ${isEnriched ? 'enriched' : ''}`}
-                            onClick={() => runEnrich(ioc)}
-                            disabled={isEnriching}
-                            aria-label={isEnriched ? 'Enriched' : 'Enrich IOC'}
-                            title={isEnriched ? 'Enriched' : 'Enrich'}
-                          >
-                            {isEnriching ? (
-                              <span className="spinner enrich-spinner" aria-hidden="true" />
-                            ) : isEnriched ? (
-                              '✓'
-                            ) : (
-                              '🔍'
-                            )}
-                          </button>
-                        </td>
-                      </tr>
-                      {isExpanded && (
-                        <tr key={`${ioc.indicator}-detail`} className="ioc-detail-row">
-                          <td colSpan={COL_COUNT}>
-                            <EnrichmentDetailPanel
-                              ioc={ioc}
-                              enrichment={enrich}
-                              enriching={isEnriching}
-                              onEnrich={() => runEnrich(ioc)}
-                            />
-                          </td>
-                        </tr>
-                      )}
-                    </Fragment>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-
-          {filtered.length > PAGE_SIZE && (
-            <div className="ioc-pagination">
-              <button
-                type="button"
-                className="pagination-btn"
-                disabled={page <= 1}
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-              >
-                Previous
-              </button>
-              <span className="page-indicator">
-                Page {page} of {totalPages} ({filtered.length} matching)
-              </span>
-              <button
-                type="button"
-                className="pagination-btn"
-                disabled={page >= totalPages}
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              >
-                Next
-              </button>
-            </div>
-          )}
-        </>
-      )}
-
-      {!loading && filtered.length === 0 && (
-        <p className="empty-state">No IOCs match your filters.</p>
-      )}
-
-      <div className="ioc-bottom-bar">
-        <span className="selected-count">{selectedIOCs.size} selected</span>
-        {enrichProgress && (
-          <span className="enrich-progress">
-            Enriching {enrichProgress.current}/{enrichProgress.total}…
-          </span>
-        )}
-        {copyMsg && <span className="copy-feedback">{copyMsg}</span>}
-        <div className="ioc-bottom-actions">
-          <button
-            type="button"
-            className="export-btn"
-            disabled={selectedIOCs.size === 0 || enrichingSet.size > 0}
-            onClick={enrichSelected}
-          >
-            Enrich Selected
-          </button>
-          <button
-            type="button"
-            className="export-btn"
-            disabled={selectedIOCs.size === 0}
-            onClick={handleGenerateKQL}
-          >
-            Generate Sentinel KQL Watchlist
-          </button>
-          <button type="button" className="export-btn secondary" onClick={exportCsv}>
-            Export CSV
-          </button>
-          <button type="button" className="export-btn secondary" onClick={copyAllIOCs}>
-            Copy All IOCs
-          </button>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
+        <div style={{fontSize:12,color:'#8b949e'}}>
+          Showing {Math.min((page-1)*PER_PAGE+1, filtered.length)}–{Math.min(page*PER_PAGE, filtered.length)} of {filtered.length}
+          {selected.size>0 && <span style={{marginLeft:12,color:'#58a6ff'}}>{selected.size} selected</span>}
         </div>
+        <div style={{display:'flex',gap:4,alignItems:'center'}}>
+          <button onClick={()=>setPage(p=>Math.max(1,p-1))} disabled={page===1} style={{padding:'5px 10px',background:'#21262d',border:'1px solid #30363d',borderRadius:6,color:page===1?'#484f58':'#c9d1d9',fontSize:12,cursor:page===1?'default':'pointer'}}>← Prev</button>
+          {Array.from({length:Math.min(5,totalPages)},(_,i)=>{
+            let p = page<=3?i+1:page+i-2
+            if(p>totalPages) return null
+            return <button key={p} onClick={()=>setPage(p)} style={{padding:'5px 10px',background:page===p?'#58a6ff':'#21262d',border:'1px solid #30363d',borderRadius:6,color:page===p?'#0d1117':'#c9d1d9',fontSize:12,cursor:'pointer'}}>{p}</button>
+          })}
+          <button onClick={()=>setPage(p=>Math.min(totalPages,p+1))} disabled={page===totalPages} style={{padding:'5px 10px',background:'#21262d',border:'1px solid #30363d',borderRadius:6,color:page===totalPages?'#484f58':'#c9d1d9',fontSize:12,cursor:page===totalPages?'default':'pointer'}}>Next →</button>
+        </div>
+        {selected.size>0 && (
+          <button onClick={()=>{
+            const sel = iocs.filter(i=>selected.has(i.indicator))
+            setGeneratedKQL(generateWatchlistKQL(sel))
+            setShowKQLModal(true)
+          }} style={{padding:'6px 14px',background:'#0d2045',border:'1px solid #58a6ff44',borderRadius:6,color:'#58a6ff',fontSize:12,cursor:'pointer'}}>
+            Generate Watchlist KQL ({selected.size})
+          </button>
+        )}
       </div>
 
       {showKQLModal && (
-        <div
-          className="modal-overlay"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="kql-modal-title"
-        >
-          <div className="modal-content">
-            <div className="modal-header">
-              <h3 id="kql-modal-title">Sentinel Watchlist KQL</h3>
-              <button
-                type="button"
-                className="panel-close-btn"
-                onClick={() => setShowKQLModal(false)}
-                aria-label="Close modal"
-              >
-                ×
-              </button>
+        <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'rgba(0,0,0,0.8)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={()=>setShowKQLModal(false)}>
+          <div style={{background:'#161b22',border:'1px solid #30363d',borderRadius:10,padding:'1.5rem',maxWidth:700,width:'90%',maxHeight:'80vh',overflow:'auto'}} onClick={e=>e.stopPropagation()}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+              <span style={{fontSize:14,fontWeight:600,color:'#f0f6fc'}}>Sentinel Watchlist KQL</span>
+              <button onClick={()=>setShowKQLModal(false)} style={{background:'none',border:'none',color:'#8b949e',fontSize:18,cursor:'pointer'}}>✕</button>
             </div>
-            <pre className="kql-block modal-kql">
-              <code>{generatedKQL}</code>
-            </pre>
-            <div className="modal-actions">
-              <button type="button" className="copy-btn" onClick={copyKql}>
-                Copy KQL
-              </button>
-              <a
-                className="sentinel-link-btn"
-                href="https://portal.azure.com/#blade/Microsoft_Azure_Monitoring_Logs/LogsBlade"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Open in Sentinel
-              </a>
+            <pre style={{background:'#0d1117',border:'1px solid #30363d',borderRadius:6,padding:'12px',fontSize:11,fontFamily:'monospace',color:'#c9d1d9',whiteSpace:'pre-wrap',marginBottom:12}}>{generatedKQL}</pre>
+            <div style={{display:'flex',gap:8}}>
+              <button onClick={()=>copyText(generatedKQL)} style={{padding:'6px 14px',background:'#21262d',border:'1px solid #30363d',borderRadius:6,color:'#c9d1d9',fontSize:12,cursor:'pointer'}}>Copy KQL</button>
+              <a href="https://portal.azure.com/#blade/Microsoft_Azure_Monitoring_Logs/LogsBlade" target="_blank" rel="noreferrer" style={{padding:'6px 14px',background:'#0d2045',border:'1px solid #58a6ff44',borderRadius:6,color:'#58a6ff',fontSize:12,textDecoration:'none'}}>Open in Sentinel →</a>
             </div>
           </div>
         </div>
       )}
+
+      {showWhitelist && (
+        <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'rgba(0,0,0,0.8)',zIndex:1000,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={()=>setShowWhitelist(false)}>
+          <div style={{background:'#161b22',border:'1px solid #30363d',borderRadius:10,padding:'1.5rem',maxWidth:500,width:'90%',maxHeight:'80vh',overflow:'auto'}} onClick={e=>e.stopPropagation()}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+              <span style={{fontSize:14,fontWeight:600,color:'#f0f6fc'}}>IOC Whitelist</span>
+              <button onClick={()=>setShowWhitelist(false)} style={{background:'none',border:'none',color:'#8b949e',fontSize:18,cursor:'pointer'}}>✕</button>
+            </div>
+            {whitelistedIPs.length === 0 ? (
+              <p style={{color:'#8b949e',fontSize:12}}>No whitelisted indicators</p>
+            ) : (
+              <div style={{maxHeight:300,overflow:'auto',marginBottom:12}}>
+                {whitelistedIPs.map((ip, idx) => (
+                  <div key={idx} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px',background:'#0d1117',borderRadius:4,marginBottom:4}}>
+                    <span style={{fontFamily:'monospace',fontSize:11,color:'#c9d1d9'}}>{ip}</span>
+                    <button onClick={()=>removeFromWhitelist(ip)} style={{padding:'2px 8px',background:'#f85149',border:'none',borderRadius:4,color:'#0d1117',fontSize:10,cursor:'pointer'}}>✕</button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {whitelistedIPs.length > 0 && (
+              <button onClick={()=>{
+                setWhitelistedIPs([])
+                localStorage.setItem('iocWhitelist', '[]')
+                loadIOCs()
+              }} style={{width:'100%',padding:'8px',background:'#f85149',border:'none',borderRadius:6,color:'#0d1117',fontSize:12,cursor:'pointer',marginBottom:12}}>
+                Clear All Whitelist
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {whitelistConfirm && (
+        <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'rgba(0,0,0,0.8)',zIndex:1001,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={()=>setWhitelistConfirm(null)}>
+          <div style={{background:'#161b22',border:'1px solid #30363d',borderRadius:10,padding:'1.5rem',maxWidth:400,width:'90%'}} onClick={e=>e.stopPropagation()}>
+            <div style={{fontSize:14,fontWeight:600,color:'#f0f6fc',marginBottom:12}}>Add to Whitelist?</div>
+            <p style={{color:'#8b949e',fontSize:12,marginBottom:16}}>
+              This will hide <span style={{fontFamily:'monospace',color:'#58a6ff'}}>{whitelistConfirm}</span> from the IOC tracker. You can remove it from the whitelist in Settings.
+            </p>
+            <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
+              <button onClick={()=>setWhitelistConfirm(null)} style={{padding:'6px 14px',background:'#21262d',border:'1px solid #30363d',borderRadius:6,color:'#c9d1d9',fontSize:12,cursor:'pointer'}}>Cancel</button>
+              <button onClick={()=>addToWhitelist(whitelistConfirm)} style={{padding:'6px 14px',background:'#f85149',border:'none',borderRadius:6,color:'#0d1117',fontSize:12,cursor:'pointer'}}>Add to Whitelist</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {copyMsg && (
+        <div style={{position:'fixed',bottom:20,right:20,background:'#3fb950',color:'#0d1117',padding:'8px 16px',borderRadius:6,fontSize:12,zIndex:1002}}>
+          {copyMsg}
+        </div>
+      )}
+
+      <style>{`
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.5; }
+        }
+      `}</style>
     </div>
   )
 }
-
-export default IocTracker

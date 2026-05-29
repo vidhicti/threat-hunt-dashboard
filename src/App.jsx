@@ -6,6 +6,7 @@ import Hypotheses from './components/Hypotheses'
 import IocTracker from './components/IocTracker'
 import QueryGenerator from './components/QueryGenerator'
 import GlobalSearch from './components/GlobalSearch'
+import Settings from './components/Settings'
 import techniques from './data/techniques.json'
 import queries from './data/queries.json'
 import hypothesesData from './data/hypotheses.json'
@@ -38,6 +39,7 @@ const TABS = [
   { id: 'hypotheses', label: 'Hypotheses' },
   { id: 'iocs', label: 'IOC Tracker' },
   { id: 'generator', label: 'KQL Generator' },
+  { id: 'settings', label: '⚙ Settings' },
 ]
 
 function AppContent() {
@@ -49,6 +51,11 @@ function AppContent() {
   const [newIocCount, setNewIocCount] = useState(0)
   const [searchHighlight, setSearchHighlight] = useState(null)
   const [workflowRevision, setWorkflowRevision] = useState(0)
+  
+  const [analystName, setAnalystName] = useState(localStorage.getItem('analystName') || '')
+  const [defaultLookback, setDefaultLookback] = useState(localStorage.getItem('defaultLookback') || '1d')
+  const [autoRefresh, setAutoRefresh] = useState(localStorage.getItem('autoRefresh') === 'true')
+  const [refreshInterval, setRefreshInterval] = useState(parseInt(localStorage.getItem('refreshInterval') || '300000'))
 
   const coveragePercent = useMemo(() => getCoveragePercent(), [])
 
@@ -101,6 +108,14 @@ function AppContent() {
   }, [])
 
   useEffect(() => {
+    const handleIocCountUpdate = (e) => {
+      setIocCount(e.detail.count)
+    }
+    window.addEventListener('iocCountUpdate', handleIocCountUpdate)
+    return () => window.removeEventListener('iocCountUpdate', handleIocCountUpdate)
+  }, [])
+
+  useEffect(() => {
     if (activeTab !== 'iocs' && searchIocs.length > 0) {
       setNewIocCount(countNewIocs(searchIocs))
     }
@@ -133,22 +148,17 @@ function AppContent() {
       case 'heatmap':
         return <MitreHeatmap {...highlightProps} />
       case 'kql':
-        return <KqlLibrary {...highlightProps} />
+        return <KqlLibrary {...highlightProps} defaultLookback={defaultLookback} />
       case 'hypotheses':
         return (
-          <Hypotheses {...highlightProps} onWorkflowChange={handleWorkflowChange} />
+          <Hypotheses {...highlightProps} onWorkflowChange={handleWorkflowChange} analystName={analystName} />
         )
       case 'iocs':
-        return (
-          <IocTracker
-            onIocCountChange={setIocCount}
-            onNewIocCountChange={setNewIocCount}
-            iocTabActive={activeTab === 'iocs'}
-            {...highlightProps}
-          />
-        )
+        return <IocTracker />
       case 'generator':
         return <QueryGenerator />
+      case 'settings':
+        return <Settings />
       default:
         return <MitreHeatmap {...highlightProps} />
     }
