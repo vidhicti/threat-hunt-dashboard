@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { FEED_LABELS, FEED_COUNT } from '../services/threatIntel'
 
-export default function Settings() {
+export default function Settings({ theme = 'dark', setTheme }) {
   const [groqApiKey, setGroqApiKey] = useState(localStorage.getItem('groqApiKey') || '')
   const [analystName, setAnalystName] = useState(localStorage.getItem('analystName') || '')
   const [groqModel, setGroqModel] = useState(localStorage.getItem('groqModel') || 'llama-3.3-70b-versatile')
@@ -128,9 +128,36 @@ export default function Settings() {
     localStorage.setItem('groqModel', groqModel)
   }
 
+  function applyTheme(next) {
+    setTheme?.(next)
+    localStorage.setItem('theme', next)
+    document.documentElement.setAttribute('data-theme', next)
+  }
+
   return (
     <div>
-      <h2 style={{fontSize:20,fontWeight:600,color:'#f0f6fc',marginBottom:20}}>Settings</h2>
+      <h2 style={{fontSize:20,fontWeight:600,color:'var(--text-primary)',marginBottom:20}}>Settings</h2>
+
+      <div style={{background:'var(--card-bg)',border:'1px solid var(--border-primary)',borderRadius:8,padding:20,marginBottom:16}}>
+        <h3 style={{fontSize:14,fontWeight:600,color:'var(--text-primary)',marginBottom:12}}>Appearance</h3>
+        <label style={{display:'block',fontSize:12,color:'var(--text-tertiary)',marginBottom:6}}>Theme</label>
+        <div className="settings-theme-row">
+          <button
+            type="button"
+            className={`settings-theme-btn ${theme === 'dark' ? 'active' : ''}`}
+            onClick={() => applyTheme('dark')}
+          >
+            🌙 Dark
+          </button>
+          <button
+            type="button"
+            className={`settings-theme-btn ${theme === 'light' ? 'active' : ''}`}
+            onClick={() => applyTheme('light')}
+          >
+            ☀️ Light
+          </button>
+        </div>
+      </div>
 
       {/* API Configuration */}
       <div style={{background:'#161b22',border:'1px solid #30363d',borderRadius:8,padding:20,marginBottom:16}}>

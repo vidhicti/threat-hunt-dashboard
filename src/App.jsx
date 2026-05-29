@@ -56,8 +56,18 @@ function AppContent() {
   const [defaultLookback, setDefaultLookback] = useState(localStorage.getItem('defaultLookback') || '1d')
   const [autoRefresh, setAutoRefresh] = useState(localStorage.getItem('autoRefresh') === 'true')
   const [refreshInterval, setRefreshInterval] = useState(parseInt(localStorage.getItem('refreshInterval') || '300000'))
+  const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark')
 
   const coveragePercent = useMemo(() => getCoveragePercent(), [])
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+    localStorage.setItem('theme', theme)
+  }, [theme])
+
+  const toggleTheme = useCallback(() => {
+    setTheme((t) => (t === 'dark' ? 'light' : 'dark'))
+  }, [])
 
   const workflowStats = useMemo(() => {
     void workflowRevision
@@ -158,7 +168,7 @@ function AppContent() {
       case 'generator':
         return <QueryGenerator />
       case 'settings':
-        return <Settings />
+        return <Settings theme={theme} setTheme={setTheme} />
       default:
         return <MitreHeatmap {...highlightProps} />
     }
@@ -176,7 +186,18 @@ function AppContent() {
             <p className="header-subtitle">Microsoft Sentinel · MITRE ATT&CK</p>
           </div>
         </div>
-        <GlobalSearch iocs={searchIocs} onResultSelect={handleSearchResult} />
+        <div className="header-actions">
+          <GlobalSearch iocs={searchIocs} onResultSelect={handleSearchResult} />
+          <button
+            type="button"
+            className="theme-toggle-btn"
+            onClick={toggleTheme}
+            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {theme === 'dark' ? '☀️' : '🌙'}
+          </button>
+        </div>
       </header>
 
       <MetricCards

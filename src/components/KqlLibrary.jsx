@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import queries from '../data/queries.json'
+import { validateKQL } from '../services/kqlValidator'
 
 const CATEGORIES = [
   { id: 'all', label: 'All' },
@@ -51,14 +52,72 @@ function exportAllKql() {
   URL.revokeObjectURL(url)
 }
 
+function ValidationPanel({ result }) {
+  if (!result) return null
+  const hasIssues =
+    result.errors.length > 0 || result.warnings.length > 0 || result.suggestions.length > 0
+
+  return (
+    <div className="kql-validation-panel">
+      <div className="kql-validation-score">
+        <span>Score: {result.score}/100</span>
+        <div className="kql-validation-bar">
+          <div
+            className="kql-validation-bar-fill"
+            style={{ width: `${result.score}%`, background: result.gradeColor }}
+          />
+        </div>
+      </div>
+      {!hasIssues && <p className="kql-val-ok">All checks passed ✓</p>}
+      {result.errors.length > 0 && (
+        <ul className="kql-validation-list">
+          {result.errors.map((msg, i) => (
+            <li key={`e-${i}`} className="kql-val-error">
+              ✗ {msg}
+            </li>
+          ))}
+        </ul>
+      )}
+      {result.warnings.length > 0 && (
+        <ul className="kql-validation-list">
+          {result.warnings.map((msg, i) => (
+            <li key={`w-${i}`} className="kql-val-warning">
+              ⚠ {msg}
+            </li>
+          ))}
+        </ul>
+      )}
+      {result.suggestions.length > 0 && (
+        <ul className="kql-validation-list">
+          {result.suggestions.map((msg, i) => (
+            <li key={`s-${i}`} className="kql-val-suggestion">
+              💡 {msg}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 function KqlLibrary({ highlightId, highlightTerm, onHighlightDone, defaultLookback = '1d' }) {
   const [activeCategory, setActiveCategory] = useState('all')
   const [copiedId, setCopiedId] = useState(null)
   const [timeRange, setTimeRange] = useState(defaultLookback)
+  const [validationResults, setValidationResults] = useState({})
+  const [expandedValidation, setExpandedValidation] = useState({})
 
   useEffect(() => {
     setTimeRange(defaultLookback)
   }, [defaultLookback])
+
+  useEffect(() => {
+    const results = {}
+    queries.forEach((q) => {
+      results[q.id] = validateKQL(q.kql)
+    })
+    setValidationResults(results)
+  }, [])
 
   const updateTimeFilter = (kql) => {
     return kql.replace(/ago\([^)]+\)/g, `ago(${timeRange})`)
@@ -88,23 +147,27 @@ function KqlLibrary({ highlightId, highlightTerm, onHighlightDone, defaultLookba
     }
   }
 
+  const toggleValidation = (queryId) => {
+    setExpandedValidation((prev) => ({ ...prev, [queryId]: !prev[queryId] }))
+  }
+
   return (
     <div className="kql-library">
       <div className="library-toolbar">
-        <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
-          <span style={{fontSize:12,color:'#8b949e'}}>Time Range:</span>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>Time Range:</span>
           {TIME_RANGES.map((tr) => (
             <button
               key={tr.value}
               type="button"
               style={{
-                padding:'4px 12px',
-                background:timeRange === tr.value ? '#58a6ff' : '#21262d',
-                border:timeRange === tr.value ? 'none' : '1px solid #30363d',
-                borderRadius:20,
-                color:timeRange === tr.value ? '#0d1117' : '#c9d1d9',
-                fontSize:11,
-                cursor:'pointer',
+                padding: '4px 12px',
+                background: timeRange === tr.value ? 'var(--accent-blue)' : 'var(--bg-tertiary)',
+                border: timeRange === tr.value ? 'none' : '1px solid var(--border-primary)',
+                borderRadius: 20,
+                color: timeRange === tr.value ? 'var(--bg-primary)' : 'var(--text-secondary)',
+                fontSize: 11,
+                cursor: 'pointer',
               }}
               onClick={() => setTimeRange(tr.value)}
             >
@@ -131,44 +194,55 @@ function KqlLibrary({ highlightId, highlightTerm, onHighlightDone, defaultLookba
       </div>
 
       <div className="query-cards">
-        {filtered.map((query) => (
-          <article
-            key={query.id}
-            id={`query-card-${query.id}`}
-            className={`query-card ${highlightId === query.id ? 'search-highlight-flash' : ''}`}
-          >
-            <div className="query-card-header">
-              <h3>{query.title}</h3>
-              <div className="query-badges">
-                <span className={`badge severity-${query.severity}`}>
-                  {query.severity}
-                </span>
-                <span className="badge badge-mitre">{query.mitreTechnique}</span>
-                <span className="badge badge-log">{query.logSource}</span>
+        {filtered.map((query) => {
+          const validation = validationResults[query.id]
+          return (
+            <article
+              key={query.id}
+              id={`query-card-${query.id}`}
+              className={`query-card ${highlightId === query.id ? 'search-highlight-flash' : ''}`}
+            >
+              <div className="query-card-header-with-grade">
+                <div className="query-card-header">
+                  <h3>{query.title}</h3>
+                  <div className="query-badges">
+                    <span className={`badge severity-${query.severity}`}>{query.severity}</span>
+                    <span className="badge badge-mitre">{query.mitreTechnique}</span>
+                    <span className="badge badge-log">{query.logSource}</span>
+                  </div>
+                </div>
+                {validation && (
+                  <button
+                    type="button"
+                    className="kql-grade-badge"
+                    style={{ background: validation.gradeColor }}
+                    title={`Grade ${validation.grade} — click for details`}
+                    onClick={() => toggleValidation(query.id)}
+                    aria-expanded={!!expandedValidation[query.id]}
+                  >
+                    {validation.grade}
+                  </button>
+                )}
               </div>
-            </div>
 
-            <pre className="kql-block">
-              <code>{updateTimeFilter(query.kql)}</code>
-            </pre>
+              {expandedValidation[query.id] && <ValidationPanel result={validation} />}
 
-            <div className="query-card-footer">
-              <p className="query-description">{query.description}</p>
-              <button
-                type="button"
-                className="copy-btn"
-                onClick={() => copyKql(query)}
-              >
-                {copiedId === query.id ? 'Copied!' : 'Copy KQL'}
-              </button>
-            </div>
-          </article>
-        ))}
+              <pre className="kql-block">
+                <code>{updateTimeFilter(query.kql)}</code>
+              </pre>
+
+              <div className="query-card-footer">
+                <p className="query-description">{query.description}</p>
+                <button type="button" className="copy-btn" onClick={() => copyKql(query)}>
+                  {copiedId === query.id ? 'Copied!' : 'Copy KQL'}
+                </button>
+              </div>
+            </article>
+          )
+        })}
       </div>
 
-      {filtered.length === 0 && (
-        <p className="empty-state">No queries in this category.</p>
-      )}
+      {filtered.length === 0 && <p className="empty-state">No queries in this category.</p>}
     </div>
   )
 }

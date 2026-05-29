@@ -12,6 +12,8 @@ import {
   updateHypothesisFields,
   computeStatsForHypotheses,
 } from '../services/huntWorkflow'
+import { incrementQueriesRun } from '../services/huntSession'
+import HuntSession from './HuntSession'
 
 const PRIORITY_BORDER = {
   critical: 'var(--red)',
@@ -156,6 +158,8 @@ function WorkflowPanel({ hypId, onWorkflowChange, refreshKey = 0 }) {
 
   const handleStatus = (status) => {
     updateHypothesisStatus(hypId, status, notes, analyst)
+    incrementQueriesRun()
+    window.dispatchEvent(new Event('huntSessionUpdate'))
     onWorkflowChange?.()
   }
 
@@ -687,6 +691,8 @@ Focus log source: ${customLogFocus}`
       )}
 
       {error && <div className="hyp-error-alert">{error}</div>}
+
+      <HuntSession hypotheses={staticHypothesesData} />
 
       {activeTab === 'static' && (
         <>
