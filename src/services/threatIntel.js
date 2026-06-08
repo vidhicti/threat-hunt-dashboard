@@ -31,27 +31,28 @@ export function isFeedEnabled(feedId) {
   return feedCfg.enabled !== false
 }
 
-async function fetchFromAPI(endpoint) {
+async function fetchFeed(endpoint) {
   try {
-    const response = await fetch(`${API_BASE}/api/${endpoint}`)
-    const data = await response.json()
-    return {
-      items: data.iocs || [],
-      success: response.ok && data.success !== false,
-    }
-  } catch {
-    return { items: [], success: false }
+    const r = await fetch(`${API_BASE}${endpoint}`)
+    const data = await r.json()
+    return { iocs: data.iocs || [], success: data.success, feedName: endpoint }
+  } catch (e) {
+    return { iocs: [], success: false, error: e.message }
   }
 }
 
-function mapOTXType(otxType) {
-  const t = String(otxType || '').toLowerCase()
-  if (t.includes('ipv4') || t.includes('ip')) return 'IP'
-  if (t.includes('domain') || t.includes('hostname')) return 'Domain'
-  if (t.includes('url')) return 'URL'
-  if (t.includes('sha256') || t.includes('sha-256')) return 'SHA256'
-  if (t.includes('md5')) return 'MD5'
-  return 'Domain'
+async function fetchFeedPost(endpoint, body) {
+  try {
+    const r = await fetch(`${API_BASE}${endpoint}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    const data = await r.json()
+    return { iocs: data.iocs || [], success: data.success }
+  } catch (e) {
+    return { iocs: [], success: false, error: e.message }
+  }
 }
 
 function mapMISPType(mispType) {
@@ -72,94 +73,10 @@ function mapLogSource(type) {
   return 'DeviceFileEvents'
 }
 
-export async function fetchThreatFoxIOCs() {
-  if (!isFeedEnabled('threatfox')) return { items: [], success: true }
-  return fetchFromAPI('threatfox')
-}
-
-export async function fetchURLhausIOCs() {
-  if (!isFeedEnabled('urlhaus')) return { items: [], success: true }
-  return fetchFromAPI('urlhaus')
-}
-
-export async function fetchFeodoTrackerIOCs() {
-  if (!isFeedEnabled('feodotracker')) return { items: [], success: true }
-  return fetchFromAPI('feodotracker')
-}
-
-export async function fetchMalwareBazaarIOCs() {
-  if (!isFeedEnabled('malwarebazaar')) return { items: [], success: true }
-  return fetchFromAPI('malwarebazaar')
-}
-
-export async function fetchEmergingThreatsIOCs() {
-  if (!isFeedEnabled('emergingthreats')) return { items: [], success: true }
-  return fetchFromAPI('emergingthreats')
-}
-
-export async function fetchCINSArmyIOCs() {
-  if (!isFeedEnabled('cinsarmy')) return { items: [], success: true }
-  return fetchFromAPI('cinsarmy')
-}
-
-export async function fetchSSLBlacklistIOCs() {
-  if (!isFeedEnabled('sslblacklist')) return { items: [], success: true }
-  return fetchFromAPI('sslblacklist')
-}
-
-export async function fetchAlienVaultIOCs() {
-  if (!isFeedEnabled('alienvault')) return { items: [], success: true }
-
-  const config = getConnectorConfig()
-  const otxKey = config?.alienvault?.apiKey
-
-  if (otxKey) {
-    try {
-      const response = await fetch('https://otx.alienvault.com/api/v1/pulses/subscribed?limit=10', {
-        headers: { 'X-OTX-API-KEY': otxKey },
-      })
-      if (!response.ok) return fetchFromAPI('alienvault')
-
-      const data = await response.json()
-      const items = []
-      const today = new Date().toISOString().split('T')[0]
-
-      for (const pulse of data.results || []) {
-        for (const ind of pulse.indicators || []) {
-          if (!ind.indicator) continue
-          items.push({
-            indicator: ind.indicator,
-            type: mapOTXType(ind.type),
-            ttp: pulse.name || 'Threat Intelligence',
-            ttpId: 'T1071',
-            source: 'AlienVault OTX',
-            logSource: mapLogSource(mapOTXType(ind.type)),
-            confidence: 'High',
-            status: 'active',
-            dateAdded: pulse.modified ? pulse.modified.split('T')[0] : today,
-            malwareFamily: pulse.malware_families?.[0] || pulse.name || 'Unknown',
-          })
-        }
-      }
-
-      return { items, success: items.length > 0 }
-    } catch {
-      return fetchFromAPI('alienvault')
-    }
-  }
-
-  return fetchFromAPI('alienvault')
-}
-
-export async function fetchCERTPolandIOCs() {
-  if (!isFeedEnabled('certpoland')) return { items: [], success: true }
-  return fetchFromAPI('certpoland')
-}
-
-export async function fetchMISPIOCs() {
+async function fetchMISPIOCs() {
   const mispConfig = getConnectorConfig()?.misp
   if (!mispConfig?.enabled || !mispConfig?.apiKey || !mispConfig?.mispUrl) {
-    return { items: [], success: true }
+    return { iocs: [], success: true }
   }
 
   try {
@@ -179,10 +96,10 @@ export async function fetchMISPIOCs() {
       }),
     })
 
-    if (!response.ok) return { items: [], success: false }
+    if (!response.ok) return { iocs: [], success: false }
 
     const data = await response.json()
-    const items = (data.response?.Attribute || []).map((attr) => ({
+    const iocs = (data.response?.Attribute || []).map((attr) => ({
       indicator: attr.value,
       type: mapMISPType(attr.type),
       ttp: attr.comment || 'Unknown',
@@ -195,23 +112,11 @@ export async function fetchMISPIOCs() {
       malwareFamily: attr.comment || 'Unknown',
     }))
 
-    return { items, success: true }
+    return { iocs, success: true }
   } catch {
-    return { items: [], success: false }
+    return { iocs: [], success: false }
   }
 }
-
-const FEED_FETCHERS = [
-  { key: 'threatfox', fetch: fetchThreatFoxIOCs },
-  { key: 'urlhaus', fetch: fetchURLhausIOCs },
-  { key: 'feodotracker', fetch: fetchFeodoTrackerIOCs },
-  { key: 'malwarebazaar', fetch: fetchMalwareBazaarIOCs },
-  { key: 'emergingthreats', fetch: fetchEmergingThreatsIOCs },
-  { key: 'cinsarmy', fetch: fetchCINSArmyIOCs },
-  { key: 'sslblacklist', fetch: fetchSSLBlacklistIOCs },
-  { key: 'alienvault', fetch: fetchAlienVaultIOCs },
-  { key: 'certpoland', fetch: fetchCERTPolandIOCs },
-]
 
 export function mergeIocLists(live, local) {
   const seen = new Set()
@@ -234,95 +139,85 @@ export function mergeIocLists(live, local) {
 }
 
 export async function fetchAllIOCs() {
-  const feedStatus = {}
-  const merged = []
+  const config = getConnectorConfig()
 
-  const fetchers = [...FEED_FETCHERS]
-  const mispConfig = getConnectorConfig()?.misp
-  if (mispConfig?.enabled && mispConfig?.apiKey && mispConfig?.mispUrl) {
-    fetchers.push({ key: 'misp', fetch: fetchMISPIOCs })
+  const feedCalls = [
+    { name: 'ThreatFox', call: () => fetchFeed('/api/feeds1?feed=threatfox'), enabled: config.threatfox?.enabled !== false },
+    { name: 'URLhaus', call: () => fetchFeed('/api/feeds1?feed=urlhaus'), enabled: config.urlhaus?.enabled !== false },
+    { name: 'FeodoTracker', call: () => fetchFeed('/api/feeds1?feed=feodotracker'), enabled: config.feodotracker?.enabled !== false },
+    { name: 'MalwareBazaar', call: () => fetchFeed('/api/feeds1?feed=malwarebazaar'), enabled: config.malwarebazaar?.enabled !== false },
+    { name: 'EmergingThreats', call: () => fetchFeed('/api/feeds2?feed=emergingthreats'), enabled: config.emergingthreats?.enabled !== false },
+    { name: 'CINS Army', call: () => fetchFeed('/api/feeds2?feed=cinsarmy'), enabled: config.cinsarmy?.enabled !== false },
+    { name: 'SSL Blacklist', call: () => fetchFeed('/api/feeds2?feed=sslblacklist'), enabled: config.sslblacklist?.enabled !== false },
+    {
+      name: 'AlienVault OTX',
+      call: () => {
+        const otxKey = config.alienvault?.apiKey
+        if (otxKey && config.alienvault?.enabled !== false) {
+          return fetchFeedPost('/api/feeds3', { feed: 'alienvaultkey', apiKey: otxKey })
+        }
+        return fetchFeed('/api/feeds3?feed=alienvault')
+      },
+      enabled: config.alienvault?.enabled !== false,
+    },
+    { name: 'CERT Poland', call: () => fetchFeed('/api/feeds3?feed=certpoland'), enabled: config.certpoland?.enabled !== false },
+  ]
+
+  if (config.misp?.enabled && config.misp?.apiKey && config.misp?.mispUrl) {
+    feedCalls.push({ name: 'MISP', call: fetchMISPIOCs, enabled: true })
   }
 
-  const results = await Promise.allSettled(
-    fetchers.map(({ fetch }) => fetch())
-  )
+  const enabledFeeds = feedCalls.filter((f) => f.enabled)
+  const results = await Promise.allSettled(enabledFeeds.map((f) => f.call()))
 
-  results.forEach((result, index) => {
-    const { key } = fetchers[index]
-    if (result.status === 'fulfilled') {
-      feedStatus[key] = result.value.success
-      merged.push(...result.value.items)
+  const feedStatus = {}
+  const allIOCs = []
+
+  results.forEach((result, i) => {
+    const feedName = enabledFeeds[i].name
+    if (result.status === 'fulfilled' && result.value.success && result.value.iocs.length > 0) {
+      feedStatus[feedName] = true
+      allIOCs.push(...result.value.iocs)
     } else {
-      feedStatus[key] = false
+      feedStatus[feedName] = false
     }
   })
 
   const seen = new Set()
-  const deduped = merged.filter((ioc) => {
-    const key = String(ioc.indicator).toLowerCase()
-    if (!key || seen.has(key)) return false
-    seen.add(key)
+  const deduped = allIOCs.filter((ioc) => {
+    if (seen.has(ioc.indicator)) return false
+    seen.add(ioc.indicator)
     return true
   })
 
-  deduped.sort((a, b) => {
-    const da = new Date(a.dateAdded).getTime() || 0
-    const db = new Date(b.dateAdded).getTime() || 0
-    return db - da
-  })
+  deduped.sort((a, b) => new Date(b.dateAdded) - new Date(a.dateAdded))
 
-  return {
-    iocs: deduped,
-    feedStatus,
-    totalCount: deduped.length,
-  }
-}
-
-function escapeKqlString(value) {
-  return String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+  return { iocs: deduped, feedStatus, totalCount: deduped.length }
 }
 
 export function generateWatchlistKQL(selectedIOCs) {
-  const ips = []
-  const domains = []
-  const hashes = []
-  const urls = []
+  const ips = selectedIOCs.filter((i) => i.type === 'IP').map((i) => i.indicator)
+  const domains = selectedIOCs.filter((i) => i.type === 'Domain').map((i) => i.indicator)
+  const hashes = selectedIOCs.filter((i) => i.type === 'SHA256').map((i) => i.indicator)
+  const urls = selectedIOCs.filter((i) => i.type === 'URL').map((i) => i.indicator)
 
-  selectedIOCs.forEach((ioc) => {
-    const type = String(ioc.type || '').toLowerCase()
-    const val = escapeKqlString(ioc.indicator)
-    if (type === 'ip' || type.includes('ip')) ips.push(`"${val}"`)
-    else if (type === 'domain') domains.push(`"${val}"`)
-    else if (type === 'url') urls.push(`"${val}"`)
-    else if (type === 'sha256' || type === 'md5' || type.includes('sha256')) hashes.push(`"${val}"`)
-    else domains.push(`"${val}"`)
-  })
+  let kql = ''
+  if (ips.length) kql += `let IPWatchlist = dynamic(${JSON.stringify(ips)});\n`
+  if (domains.length) kql += `let DomainWatchlist = dynamic(${JSON.stringify(domains)});\n`
+  if (hashes.length) kql += `let HashWatchlist = dynamic(${JSON.stringify(hashes)});\n`
+  if (urls.length) kql += `let URLWatchlist = dynamic(${JSON.stringify(urls)});\n`
 
-  const lines = []
-  lines.push(`let IPWatchlist = dynamic([${ips.join(',') || ''}]);`)
-  lines.push(`let DomainWatchlist = dynamic([${domains.join(',') || ''}]);`)
-  lines.push(`let HashWatchlist = dynamic([${hashes.join(',') || ''}]);`)
-  lines.push(`let URLWatchlist = dynamic([${urls.join(',') || ''}]);`)
-  lines.push('// Fortigate + Palo Alto + Sophos - IP matches')
-  lines.push('let FirewallHits = CommonSecurityLog')
-  lines.push('| where TimeGenerated > ago(7d)')
-  lines.push('| where DeviceVendor in ("Fortinet","Palo Alto Networks","Sophos","Trend Micro")')
-  lines.push('| where SourceIP in (IPWatchlist) or DestinationIP in (IPWatchlist)')
-  lines.push('| project TimeGenerated, DeviceVendor, SourceIP, DestinationIP, Activity, DeviceAction;')
-  lines.push('let DnsHits = ASimDnsActivityLogs')
-  lines.push('| where TimeGenerated > ago(7d)')
-  lines.push('| where array_length(DomainWatchlist) == 0 or DnsQuery has_any (DomainWatchlist)')
-  lines.push('| project TimeGenerated, DnsQuery, SrcIpAddr, DnsResponseCode;')
-  lines.push('let HashHits = DeviceFileEvents')
-  lines.push('| where Timestamp > ago(7d)')
-  lines.push('| where array_length(HashWatchlist) == 0 or SHA256 in (HashWatchlist)')
-  lines.push('| project TimeGenerated = Timestamp, DeviceName, FileName, SHA256, InitiatingProcessAccountName;')
-  lines.push('let UrlHits = DeviceNetworkEvents')
-  lines.push('| where Timestamp > ago(7d)')
-  lines.push('| where array_length(URLWatchlist) == 0 or RemoteUrl has_any (URLWatchlist)')
-  lines.push('| project TimeGenerated = Timestamp, DeviceName, RemoteUrl, RemoteIP, InitiatingProcessFileName;')
-  lines.push('union FirewallHits, DnsHits, HashHits, UrlHits')
-  lines.push('| order by TimeGenerated desc')
+  kql += `\n// Firewall - IP matches\nCommonSecurityLog\n| where DeviceVendor in ("Fortinet","Palo Alto Networks","Sophos","Trend Micro")\n`
+  if (ips.length) kql += `| where SourceIP in (IPWatchlist) or DestinationIP in (IPWatchlist)\n`
+  kql += `| project TimeGenerated, DeviceVendor, SourceIP, DestinationIP, Activity, DeviceAction\n`
 
-  return lines.join('\n')
+  if (domains.length) {
+    kql += `| union (\nASimDnsActivityLogs\n| where DnsQuery has_any (DomainWatchlist)\n| project TimeGenerated, DnsQuery, SrcIpAddr, DnsResponseCode\n)\n`
+  }
+  if (hashes.length) {
+    kql += `| union (\nDeviceFileEvents\n| where SHA256 in (HashWatchlist)\n| project TimeGenerated, DeviceName, FileName, SHA256, InitiatingProcessFileName\n)\n`
+  }
+
+  kql += `| order by TimeGenerated desc`
+  return kql
 }

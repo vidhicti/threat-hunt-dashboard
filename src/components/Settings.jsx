@@ -15,6 +15,16 @@ async function postToApi(path, body) {
   return res.json()
 }
 
+function getConsolidatedFeedEndpoint(feedId) {
+  const feeds1 = ['threatfox', 'urlhaus', 'feodotracker', 'malwarebazaar']
+  const feeds2 = ['emergingthreats', 'cinsarmy', 'sslblacklist']
+  const feeds3 = ['alienvault', 'certpoland']
+  if (feeds1.includes(feedId)) return `/api/feeds1?feed=${feedId}`
+  if (feeds2.includes(feedId)) return `/api/feeds2?feed=${feedId}`
+  if (feeds3.includes(feedId)) return `/api/feeds3?feed=${feedId}`
+  return null
+}
+
 function tierBadgeClass(tier) {
   if (tier === 'free') return 'connector-tier-free'
   if (tier === 'free_limited') return 'connector-tier-key'
@@ -234,7 +244,7 @@ export default function Settings({ theme = 'dark', setTheme }) {
           }
         }
       } else if (feed.id === 'alienvault' && apiKey) {
-        const data = await postToApi('alienvaultkey', { apiKey })
+        const data = await postToApi('feeds3', { feed: 'alienvaultkey', apiKey })
         if (!data.success) throw new Error(data.error || 'Invalid OTX API key')
         result = {
           ok: true,
@@ -272,7 +282,9 @@ export default function Settings({ theme = 'dark', setTheme }) {
         if (!apiKey) throw new Error('API key required')
         result = { ok: true, message: 'API key saved', iocCount: feed.iocCount }
       } else {
-        const res = await fetch(`${API_BASE}/api/${feed.id}`)
+        const endpoint = getConsolidatedFeedEndpoint(feed.id)
+        if (!endpoint) throw new Error('Unknown feed')
+        const res = await fetch(`${API_BASE}${endpoint}`)
         const data = await res.json()
         if (!res.ok || data.success === false) throw new Error(data.error || 'Feed unavailable')
         const count = data.iocs?.length ?? data.count ?? 0

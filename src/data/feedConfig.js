@@ -239,6 +239,8 @@ export const FEED_GROUPS = [
 
 export const FEED_BY_ID = Object.fromEntries(FEED_DEFINITIONS.map((f) => [f.id, f]))
 
-export const SOURCE_TO_FEED_ID = Object.fromEntries(
-  FEED_DEFINITIONS.map((f) => [f.name, f.id])
-)
+export const SOURCE_TO_FEED_ID = {
+  ...Object.fromEntries(FEED_DEFINITIONS.map((f) => [f.name, f.id])),
+  'AlienVault OTX (Auth)': 'alienvault',
+  EmergingThreats: 'emergingthreats',
+}
