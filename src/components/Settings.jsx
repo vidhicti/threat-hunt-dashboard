@@ -6,7 +6,14 @@ const API_BASE = window.location.hostname === 'localhost'
   ? 'http://localhost:3000'
   : 'https://threat-hunt-dashboard.vercel.app'
 
-const SAFE_VT_HASH = 'E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855'
+async function postToApi(path, body) {
+  const res = await fetch(`${API_BASE}/api/${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  return res.json()
+}
 
 function tierBadgeClass(tier) {
   if (tier === 'free') return 'connector-tier-free'
@@ -200,35 +207,40 @@ export default function Settings({ theme = 'dark', setTheme }) {
 
       if (feed.usedFor === 'enrichment') {
         if (feed.id === 'abuseipdb') {
-          const res = await fetch(
-            'https://api.abuseipdb.com/api/v2/check?ipAddress=1.1.1.1&maxAgeInDays=90',
-            { headers: { Key: apiKey, Accept: 'application/json' } }
-          )
-          const data = await res.json()
-          if (!res.ok) throw new Error(data.errors?.[0]?.detail || 'Invalid API key')
-          result = { ok: true, message: 'Connected', iocCount: 'Enrichment ready' }
+          const data = await postToApi('abuseipdb', { ip: '1.1.1.1', apiKey })
+          if (!data.success) throw new Error(data.error || 'Connection failed')
+          result = {
+            ok: true,
+            message: 'Connected',
+            iocCount: `Abuse score ${data.result.abuseScore}/100 (${data.result.totalReports || 0} reports)`,
+          }
         } else if (feed.id === 'virustotal') {
-          const res = await fetch(
-            `https://www.virustotal.com/api/v3/files/${SAFE_VT_HASH}`,
-            { headers: { 'x-apikey': apiKey } }
-          )
-          const data = await res.json()
-          if (!res.ok) throw new Error(data.error?.message || 'Invalid API key')
-          result = { ok: true, message: 'Connected', iocCount: 'Enrichment ready' }
+          const data = await postToApi('virustotal', { indicator: '1.1.1.1', type: 'IP', apiKey })
+          if (!data.success) throw new Error(data.error || 'Connection failed')
+          result = {
+            ok: true,
+            message: 'Connected',
+            iocCount: `VT score ${data.result.vtScore} (${data.result.vtMalicious} malicious)`,
+          }
         } else if (feed.id === 'shodan') {
-          const res = await fetch(`https://api.shodan.io/api-info?key=${encodeURIComponent(apiKey)}`)
-          const data = await res.json()
-          if (!res.ok) throw new Error(data.error || 'Invalid API key')
-          result = { ok: true, message: 'Connected', iocCount: 'Enrichment ready' }
+          const data = await postToApi('shodan', { ip: '8.8.8.8', apiKey })
+          if (!data.success) throw new Error(data.error || 'Connection failed')
+          const portCount = data.result.openPorts?.length || 0
+          const vulnCount = data.result.vulns?.length || 0
+          result = {
+            ok: true,
+            message: 'Connected',
+            iocCount: `${portCount} open ports, ${vulnCount} vulnerabilities`,
+          }
         }
       } else if (feed.id === 'alienvault' && apiKey) {
-        const res = await fetch('https://otx.alienvault.com/api/v1/pulses/subscribed?limit=1', {
-          headers: { 'X-OTX-API-KEY': apiKey },
-        })
-        const data = await res.json()
-        if (!res.ok) throw new Error('Invalid OTX API key')
-        const count = data.count || (data.results?.length ?? 0)
-        result = { ok: true, message: 'Connected', iocCount: count > 0 ? `${count}+ pulses` : 'Authenticated' }
+        const data = await postToApi('alienvaultkey', { apiKey })
+        if (!data.success) throw new Error(data.error || 'Invalid OTX API key')
+        result = {
+          ok: true,
+          message: 'Connected',
+          iocCount: data.count > 0 ? `${data.count} IOCs available` : 'Authenticated',
+        }
       } else if (feed.id === 'misp') {
         const mispUrl = (draft.mispUrl || connectorConfig.misp?.mispUrl || '').replace(/\/$/, '')
         const res = await fetch(`${mispUrl}/attributes/restSearch`, {
@@ -278,7 +290,7 @@ export default function Settings({ theme = 'dark', setTheme }) {
       persistConnectorConfig(updated)
       setTestResults((prev) => ({
         ...prev,
-        [feed.id]: { ok: true, text: `✓ Connected - ${result.iocCount} IOCs available` },
+        [feed.id]: { ok: true, text: `✓ ${result.message} - ${result.iocCount}` },
       }))
     } catch (err) {
       const updated = {
