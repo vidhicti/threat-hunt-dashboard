@@ -253,30 +253,16 @@ export default function Settings({ theme = 'dark', setTheme }) {
         }
       } else if (feed.id === 'misp') {
         const mispUrl = (draft.mispUrl || connectorConfig.misp?.mispUrl || '').replace(/\/$/, '')
-        const res = await fetch(`${mispUrl}/attributes/restSearch`, {
-          method: 'POST',
-          headers: {
-            Authorization: apiKey,
-            'Content-Type': 'application/json',
-            Accept: 'application/json',
-          },
-          body: JSON.stringify({ returnFormat: 'json', limit: 1, to_ids: 1 }),
-        })
-        const data = await res.json()
-        if (!res.ok) throw new Error('MISP connection failed')
-        const count = data.response?.Attribute?.length ?? 0
+        if (!apiKey || !mispUrl) throw new Error('API key and MISP URL required')
+        const data = await postToApi('misp', { mispUrl, apiKey, action: 'test' })
+        if (!data.success) throw new Error(data.error || 'MISP connection failed')
+        const count = data.count ?? 0
         result = { ok: true, message: 'Connected', iocCount: count > 0 ? `${count}+ IOCs` : 'MISP reachable' }
       } else if (feed.id === 'opencti') {
         const openctiUrl = (draft.openctiUrl || connectorConfig.opencti?.openctiUrl || '').replace(/\/$/, '')
-        const res = await fetch(`${openctiUrl}/graphql`, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ query: '{ about { version } }' }),
-        })
-        if (!res.ok) throw new Error('OpenCTI connection failed')
+        if (!apiKey || !openctiUrl) throw new Error('API key and OpenCTI URL required')
+        const data = await postToApi('opencti', { openctiUrl, apiKey, action: 'test' })
+        if (!data.success) throw new Error(data.error || 'OpenCTI connection failed')
         result = { ok: true, message: 'Connected', iocCount: 'Instance reachable' }
       } else if (feed.id === 'recordedfuture' || feed.id === 'crowdstrike') {
         if (!apiKey) throw new Error('API key required')
