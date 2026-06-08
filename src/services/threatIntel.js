@@ -1,20 +1,35 @@
+import { FEED_DEFINITIONS } from '../data/feedConfig'
+
 const API_BASE = window.location.hostname === 'localhost'
   ? 'http://localhost:3000'
   : 'https://threat-hunt-dashboard.vercel.app'
 
-export const FEED_LABELS = {
-  threatfox: 'ThreatFox',
-  urlhaus: 'URLhaus',
-  feodotracker: 'FeodoTracker',
-  malwarebazaar: 'MalwareBazaar',
-  emergingThreats: 'EmergingThreats',
-  cinsArmy: 'CINS Army',
-  sslBlacklist: 'SSL Blacklist',
-  alienVault: 'AlienVault OTX',
-  certPoland: 'CERT Poland',
+export const FEED_LABELS = Object.fromEntries(
+  FEED_DEFINITIONS
+    .filter((f) => f.usedFor !== 'enrichment')
+    .map((f) => [f.id, f.name])
+)
+
+export const FEED_COUNT = FEED_DEFINITIONS.filter((f) => f.usedFor !== 'enrichment').length
+
+export function getConnectorConfig() {
+  try {
+    return JSON.parse(localStorage.getItem('connectorConfig') || '{}')
+  } catch {
+    return {}
+  }
 }
 
-export const FEED_COUNT = Object.keys(FEED_LABELS).length
+export function isFeedEnabled(feedId) {
+  const config = getConnectorConfig()
+  const feedCfg = config[feedId]
+  const feedDef = FEED_DEFINITIONS.find((f) => f.id === feedId)
+  if (!feedCfg) {
+    if (feedDef?.requiresKey) return false
+    return true
+  }
+  return feedCfg.enabled !== false
+}
 
 async function fetchFromAPI(endpoint) {
   try {
@@ -29,40 +44,161 @@ async function fetchFromAPI(endpoint) {
   }
 }
 
+function mapOTXType(otxType) {
+  const t = String(otxType || '').toLowerCase()
+  if (t.includes('ipv4') || t.includes('ip')) return 'IP'
+  if (t.includes('domain') || t.includes('hostname')) return 'Domain'
+  if (t.includes('url')) return 'URL'
+  if (t.includes('sha256') || t.includes('sha-256')) return 'SHA256'
+  if (t.includes('md5')) return 'MD5'
+  return 'Domain'
+}
+
+function mapMISPType(mispType) {
+  const t = String(mispType || '').toLowerCase()
+  if (t.includes('ip')) return 'IP'
+  if (t === 'domain') return 'Domain'
+  if (t === 'url') return 'URL'
+  if (t.includes('sha256')) return 'SHA256'
+  if (t.includes('md5')) return 'MD5'
+  return 'Domain'
+}
+
+function mapLogSource(type) {
+  const t = String(type || '').toLowerCase()
+  if (t.includes('ip')) return 'CommonSecurityLog'
+  if (t === 'domain') return 'ASimDnsActivityLogs'
+  if (t === 'url') return 'DeviceNetworkEvents'
+  return 'DeviceFileEvents'
+}
+
 export async function fetchThreatFoxIOCs() {
+  if (!isFeedEnabled('threatfox')) return { items: [], success: true }
   return fetchFromAPI('threatfox')
 }
 
 export async function fetchURLhausIOCs() {
+  if (!isFeedEnabled('urlhaus')) return { items: [], success: true }
   return fetchFromAPI('urlhaus')
 }
 
 export async function fetchFeodoTrackerIOCs() {
+  if (!isFeedEnabled('feodotracker')) return { items: [], success: true }
   return fetchFromAPI('feodotracker')
 }
 
 export async function fetchMalwareBazaarIOCs() {
+  if (!isFeedEnabled('malwarebazaar')) return { items: [], success: true }
   return fetchFromAPI('malwarebazaar')
 }
 
 export async function fetchEmergingThreatsIOCs() {
+  if (!isFeedEnabled('emergingthreats')) return { items: [], success: true }
   return fetchFromAPI('emergingthreats')
 }
 
 export async function fetchCINSArmyIOCs() {
+  if (!isFeedEnabled('cinsarmy')) return { items: [], success: true }
   return fetchFromAPI('cinsarmy')
 }
 
 export async function fetchSSLBlacklistIOCs() {
+  if (!isFeedEnabled('sslblacklist')) return { items: [], success: true }
   return fetchFromAPI('sslblacklist')
 }
 
 export async function fetchAlienVaultIOCs() {
+  if (!isFeedEnabled('alienvault')) return { items: [], success: true }
+
+  const config = getConnectorConfig()
+  const otxKey = config?.alienvault?.apiKey
+
+  if (otxKey) {
+    try {
+      const response = await fetch('https://otx.alienvault.com/api/v1/pulses/subscribed?limit=10', {
+        headers: { 'X-OTX-API-KEY': otxKey },
+      })
+      if (!response.ok) return fetchFromAPI('alienvault')
+
+      const data = await response.json()
+      const items = []
+      const today = new Date().toISOString().split('T')[0]
+
+      for (const pulse of data.results || []) {
+        for (const ind of pulse.indicators || []) {
+          if (!ind.indicator) continue
+          items.push({
+            indicator: ind.indicator,
+            type: mapOTXType(ind.type),
+            ttp: pulse.name || 'Threat Intelligence',
+            ttpId: 'T1071',
+            source: 'AlienVault OTX',
+            logSource: mapLogSource(mapOTXType(ind.type)),
+            confidence: 'High',
+            status: 'active',
+            dateAdded: pulse.modified ? pulse.modified.split('T')[0] : today,
+            malwareFamily: pulse.malware_families?.[0] || pulse.name || 'Unknown',
+          })
+        }
+      }
+
+      return { items, success: items.length > 0 }
+    } catch {
+      return fetchFromAPI('alienvault')
+    }
+  }
+
   return fetchFromAPI('alienvault')
 }
 
 export async function fetchCERTPolandIOCs() {
+  if (!isFeedEnabled('certpoland')) return { items: [], success: true }
   return fetchFromAPI('certpoland')
+}
+
+export async function fetchMISPIOCs() {
+  const mispConfig = getConnectorConfig()?.misp
+  if (!mispConfig?.enabled || !mispConfig?.apiKey || !mispConfig?.mispUrl) {
+    return { items: [], success: true }
+  }
+
+  try {
+    const baseUrl = mispConfig.mispUrl.replace(/\/$/, '')
+    const response = await fetch(`${baseUrl}/attributes/restSearch`, {
+      method: 'POST',
+      headers: {
+        Authorization: mispConfig.apiKey,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({
+        returnFormat: 'json',
+        type: ['ip-dst', 'domain', 'url', 'sha256', 'md5'],
+        limit: 500,
+        to_ids: 1,
+      }),
+    })
+
+    if (!response.ok) return { items: [], success: false }
+
+    const data = await response.json()
+    const items = (data.response?.Attribute || []).map((attr) => ({
+      indicator: attr.value,
+      type: mapMISPType(attr.type),
+      ttp: attr.comment || 'Unknown',
+      ttpId: 'T1071',
+      source: 'MISP',
+      logSource: mapLogSource(attr.type),
+      confidence: 'High',
+      status: 'active',
+      dateAdded: new Date((attr.timestamp || 0) * 1000).toISOString().split('T')[0],
+      malwareFamily: attr.comment || 'Unknown',
+    }))
+
+    return { items, success: true }
+  } catch {
+    return { items: [], success: false }
+  }
 }
 
 const FEED_FETCHERS = [
@@ -70,11 +206,11 @@ const FEED_FETCHERS = [
   { key: 'urlhaus', fetch: fetchURLhausIOCs },
   { key: 'feodotracker', fetch: fetchFeodoTrackerIOCs },
   { key: 'malwarebazaar', fetch: fetchMalwareBazaarIOCs },
-  { key: 'emergingThreats', fetch: fetchEmergingThreatsIOCs },
-  { key: 'cinsArmy', fetch: fetchCINSArmyIOCs },
-  { key: 'sslBlacklist', fetch: fetchSSLBlacklistIOCs },
-  { key: 'alienVault', fetch: fetchAlienVaultIOCs },
-  { key: 'certPoland', fetch: fetchCERTPolandIOCs },
+  { key: 'emergingthreats', fetch: fetchEmergingThreatsIOCs },
+  { key: 'cinsarmy', fetch: fetchCINSArmyIOCs },
+  { key: 'sslblacklist', fetch: fetchSSLBlacklistIOCs },
+  { key: 'alienvault', fetch: fetchAlienVaultIOCs },
+  { key: 'certpoland', fetch: fetchCERTPolandIOCs },
 ]
 
 export function mergeIocLists(live, local) {
@@ -101,12 +237,18 @@ export async function fetchAllIOCs() {
   const feedStatus = {}
   const merged = []
 
+  const fetchers = [...FEED_FETCHERS]
+  const mispConfig = getConnectorConfig()?.misp
+  if (mispConfig?.enabled && mispConfig?.apiKey && mispConfig?.mispUrl) {
+    fetchers.push({ key: 'misp', fetch: fetchMISPIOCs })
+  }
+
   const results = await Promise.allSettled(
-    FEED_FETCHERS.map(({ fetch }) => fetch())
+    fetchers.map(({ fetch }) => fetch())
   )
 
   results.forEach((result, index) => {
-    const { key } = FEED_FETCHERS[index]
+    const { key } = fetchers[index]
     if (result.status === 'fulfilled') {
       feedStatus[key] = result.value.success
       merged.push(...result.value.items)

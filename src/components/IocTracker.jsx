@@ -1,6 +1,14 @@
 import { useState, useEffect } from 'react'
-import { fetchAllIOCs, generateWatchlistKQL, FEED_LABELS, FEED_COUNT } from '../services/threatIntel'
-import { getCachedEnrichment } from '../services/iocEnrichment'
+import { fetchAllIOCs, generateWatchlistKQL, FEED_COUNT, isFeedEnabled } from '../services/threatIntel'
+import {
+  getCachedEnrichment,
+  setCachedEnrichment,
+  enrichIOC,
+  enrichIPWithAbuseIPDB,
+  enrichIPWithShodan,
+  enrichWithVirusTotal,
+} from '../services/iocEnrichment'
+import { SOURCE_TO_FEED_ID } from '../data/feedConfig'
 import { autoEnrichIPs } from '../services/autoEnrich'
 import localIOCs from '../data/iocs.json'
 
@@ -10,18 +18,32 @@ function mergeCachedEnrichment(iocList) {
   return iocList.map((ioc) => {
     const cached = getCachedEnrichment(ioc.indicator)
     if (!cached) return ioc
-    return {
-      ...ioc,
-      country: cached.country,
-      countryCode: cached.countryCode,
-      city: cached.city,
-      isp: cached.isp,
-      asn: cached.asn,
-      isProxy: cached.isProxy,
-      isHosting: cached.isHosting,
-      enriched: true,
-    }
+    return { ...ioc, ...cached, enriched: true }
   })
+}
+
+function applyEnrichmentUpdate(ioc, data) {
+  return { ...ioc, ...data, enriched: true }
+}
+
+function getConnectorConfig() {
+  try {
+    return JSON.parse(localStorage.getItem('connectorConfig') || '{}')
+  } catch {
+    return {}
+  }
+}
+
+function abuseRiskLabel(score) {
+  if (score > 50) return 'High Risk'
+  if (score > 20) return 'Medium Risk'
+  return 'Low Risk'
+}
+
+function abuseBarColor(score) {
+  if (score > 50) return '#f85149'
+  if (score > 20) return '#d29922'
+  return '#3fb950'
 }
 
 function sortIOCs(iocs, column, direction) {
@@ -75,8 +97,7 @@ export default function IocTracker() {
   const [showWhitelist, setShowWhitelist] = useState(false)
   const [copyMsg, setCopyMsg] = useState('')
   const [whitelistConfirm, setWhitelistConfirm] = useState(null)
-
-  const feedConfig = JSON.parse(localStorage.getItem('feedConfig') || '{}')
+  const [enrichingSource, setEnrichingSource] = useState(null)
 
   useEffect(() => {
     loadIOCs()
@@ -89,12 +110,11 @@ export default function IocTracker() {
       const result = await fetchAllIOCs()
       const combined = result?.iocs?.length > 0 ? result.iocs : localIOCs
       
-      // Filter out disabled feeds
-      const filteredByConfig = combined.filter(ioc => {
-        if (!ioc.source || !feedConfig) return true
-        const feedKey = Object.keys(FEED_LABELS).find(k => FEED_LABELS[k] === ioc.source)
-        if (feedKey && feedConfig[feedKey] === false) return false
-        return true
+      const filteredByConfig = combined.filter((ioc) => {
+        if (!ioc.source) return true
+        const feedId = SOURCE_TO_FEED_ID[ioc.source]
+        if (!feedId) return true
+        return isFeedEnabled(feedId)
       })
       
       // Filter out whitelisted indicators
@@ -114,19 +134,7 @@ export default function IocTracker() {
           (indicator, data) => {
             setIocs((prev) =>
               prev.map((i) =>
-                i.indicator === indicator
-                  ? {
-                      ...i,
-                      country: data.country,
-                      countryCode: data.countryCode,
-                      city: data.city,
-                      isp: data.isp,
-                      asn: data.asn,
-                      isProxy: data.isProxy,
-                      isHosting: data.isHosting,
-                      enriched: true,
-                    }
-                  : i
+                i.indicator === indicator ? applyEnrichmentUpdate(i, data) : i
               )
             )
           }
@@ -149,19 +157,7 @@ export default function IocTracker() {
           (indicator, data) => {
             setIocs((prev) =>
               prev.map((i) =>
-                i.indicator === indicator
-                  ? {
-                      ...i,
-                      country: data.country,
-                      countryCode: data.countryCode,
-                      city: data.city,
-                      isp: data.isp,
-                      asn: data.asn,
-                      isProxy: data.isProxy,
-                      isHosting: data.isHosting,
-                      enriched: true,
-                    }
-                  : i
+                i.indicator === indicator ? applyEnrichmentUpdate(i, data) : i
               )
             )
           }
@@ -185,6 +181,32 @@ export default function IocTracker() {
     setWhitelistedIPs(list)
     localStorage.setItem('iocWhitelist', JSON.stringify(list))
     loadIOCs()
+  }
+
+  async function enrichWithSource(ioc, source) {
+    const config = getConnectorConfig()
+    setEnrichingSource(source)
+    try {
+      let data = null
+      if (source === 'abuseipdb' && config.abuseipdb?.apiKey) {
+        data = await enrichIPWithAbuseIPDB(ioc.indicator, config.abuseipdb.apiKey)
+      } else if (source === 'shodan' && config.shodan?.apiKey) {
+        data = await enrichIPWithShodan(ioc.indicator, config.shodan.apiKey)
+      } else if (source === 'virustotal' && config.virustotal?.apiKey) {
+        data = await enrichWithVirusTotal(ioc.indicator, ioc.type, config.virustotal.apiKey)
+      } else if (source === 'all') {
+        data = await enrichIOC(ioc)
+      }
+      if (data) {
+        const merged = { ...getCachedEnrichment(ioc.indicator), ...data, enriched: true }
+        setCachedEnrichment(ioc.indicator, merged)
+        setIocs((prev) =>
+          prev.map((i) => (i.indicator === ioc.indicator ? applyEnrichmentUpdate(i, merged) : i))
+        )
+      }
+    } finally {
+      setEnrichingSource(null)
+    }
   }
 
   function generateIOCKQL(ioc) {
@@ -455,7 +477,7 @@ export default function IocTracker() {
                             <div><span style={{color:"#8b949e"}}>Status:</span> <span style={{color:"#c9d1d9"}}>{ioc.status}</span></div>
                           </div>
                           <div style={{marginTop:12,paddingTop:12,borderTop:"1px solid #21262d"}}>
-                            <div style={{fontSize:11,color:"#8b949e",marginBottom:8,textTransform:"uppercase",letterSpacing:".06em"}}>IP Enrichment</div>
+                            <div style={{fontSize:11,color:"#8b949e",marginBottom:8,textTransform:"uppercase",letterSpacing:".06em"}}>Threat Intel Enrichment</div>
                             {ioc.type === 'IP' && ioc.enriched ? (
                               <>
                                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,fontSize:11,marginBottom:8}}>
@@ -464,16 +486,75 @@ export default function IocTracker() {
                                   <div><span style={{color:"#8b949e"}}>ISP:</span> <span style={{color:"#c9d1d9"}}>{ioc.isp || '—'}</span></div>
                                   <div><span style={{color:"#8b949e"}}>ASN:</span> <span style={{color:"#c9d1d9"}}>{ioc.asn || '—'}</span></div>
                                 </div>
-                                <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                                {ioc.abuseScore != null && (
+                                  <div className="ioc-abuse-score" style={{marginBottom:8}}>
+                                    <div style={{fontSize:11,color:"#8b949e",marginBottom:4}}>
+                                      Abuse Score: {ioc.abuseScore}/100 ({abuseRiskLabel(ioc.abuseScore)})
+                                    </div>
+                                    <div style={{height:6,background:"#21262d",borderRadius:3,overflow:"hidden"}}>
+                                      <div style={{height:"100%",width:`${ioc.abuseScore}%`,background:abuseBarColor(ioc.abuseScore),borderRadius:3}} />
+                                    </div>
+                                  </div>
+                                )}
+                                {ioc.vtScore != null && (
+                                  <div style={{fontSize:11,marginBottom:8,color: ioc.vtMalicious > 0 ? '#f85149' : '#c9d1d9'}}>
+                                    VT: {ioc.vtMalicious}/{ioc.vtTotal} engines flagged
+                                  </div>
+                                )}
+                                {ioc.openPorts?.length > 0 && (
+                                  <div style={{fontSize:11,marginBottom:4,color:"#c9d1d9"}}>
+                                    Open Ports: {ioc.openPorts.join(', ')}
+                                  </div>
+                                )}
+                                {ioc.vulns?.length > 0 && (
+                                  <div style={{fontSize:11,marginBottom:8,color:"#f85149"}}>
+                                    Vulnerabilities: {ioc.vulns.slice(0, 5).join(', ')}{ioc.vulns.length > 5 ? '...' : ''}
+                                  </div>
+                                )}
+                                <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:8}}>
+                                  {ioc.isTor && <span style={{fontSize:10,padding:"2px 8px",background:"#3d1a1a",color:"#f85149",borderRadius:4,border:"1px solid #f8514940",fontWeight:600}}>TOR EXIT NODE</span>}
                                   {ioc.isProxy && <span style={{fontSize:10,padding:"2px 8px",background:"#3d1a1a",color:"#f85149",borderRadius:4,border:"1px solid #f8514940",fontWeight:600}}>PROXY</span>}
                                   {ioc.isHosting && <span style={{fontSize:10,padding:"2px 8px",background:"#3d2e0a",color:"#d29922",borderRadius:4,border:"1px solid #d2992240",fontWeight:600}}>VPS/HOSTING</span>}
+                                  {ioc.usageType && <span style={{fontSize:10,padding:"2px 8px",background:"#3d2e0a",color:"#d29922",borderRadius:4,border:"1px solid #d2992240"}}>{ioc.usageType}</span>}
                                 </div>
                               </>
                             ) : ioc.type === 'IP' ? (
                               <span style={{fontSize:11,color:"#484f58"}}>Not yet enriched</span>
+                            ) : ioc.vtScore != null ? (
+                              <div style={{fontSize:11,marginBottom:8,color: ioc.vtMalicious > 0 ? '#f85149' : '#c9d1d9'}}>
+                                VT: {ioc.vtMalicious}/{ioc.vtTotal} engines flagged
+                              </div>
                             ) : (
-                              <span style={{fontSize:11,color:"#484f58"}}>N/A (non-IP)</span>
+                              <span style={{fontSize:11,color:"#484f58"}}>No enrichment data yet</span>
                             )}
+                            {(() => {
+                              const cfg = getConnectorConfig()
+                              const enrichButtons = []
+                              if (cfg.abuseipdb?.apiKey && cfg.abuseipdb?.enabled !== false && ioc.type === 'IP') {
+                                enrichButtons.push({ id: 'abuseipdb', label: 'AbuseIPDB' })
+                              }
+                              if (cfg.shodan?.apiKey && cfg.shodan?.enabled !== false && ioc.type === 'IP') {
+                                enrichButtons.push({ id: 'shodan', label: 'Shodan' })
+                              }
+                              if (cfg.virustotal?.apiKey && cfg.virustotal?.enabled !== false) {
+                                enrichButtons.push({ id: 'virustotal', label: 'VirusTotal' })
+                              }
+                              if (enrichButtons.length === 0) return null
+                              return (
+                                <div style={{display:"flex",gap:6,flexWrap:"wrap",marginTop:8}}>
+                                  {enrichButtons.map((btn) => (
+                                    <button
+                                      key={btn.id}
+                                      onClick={() => enrichWithSource(ioc, btn.id)}
+                                      disabled={enrichingSource === btn.id}
+                                      style={{padding:"4px 10px",background:"#0d2045",border:"1px solid #58a6ff44",borderRadius:6,color:"#58a6ff",fontSize:10,cursor:enrichingSource === btn.id ? 'default' : 'pointer',opacity:enrichingSource === btn.id ? 0.6 : 1}}
+                                    >
+                                      {enrichingSource === btn.id ? 'Enriching...' : `Enrich with ${btn.label}`}
+                                    </button>
+                                  ))}
+                                </div>
+                              )
+                            })()}
                           </div>
                           <div style={{display:"flex",gap:8,marginTop:12}}>
                             <button onClick={()=>copyText(ioc.indicator)} style={{padding:"5px 10px",background:"#21262d",border:"1px solid #30363d",borderRadius:6,color:"#c9d1d9",fontSize:11,cursor:"pointer"}}>Copy IOC</button>

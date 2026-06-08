@@ -1,4 +1,4 @@
-import { enrichIP, getCachedEnrichment, setCachedEnrichment } from './iocEnrichment'
+import { enrichIOC, getCachedEnrichment, setCachedEnrichment } from './iocEnrichment'
 
 export async function autoEnrichIPs(iocs, onProgress, onUpdate) {
   const ips = iocs
@@ -17,7 +17,7 @@ export async function autoEnrichIPs(iocs, onProgress, onUpdate) {
     try {
       await new Promise((r) => setTimeout(r, 1400))
 
-      const data = await enrichIP(ioc.indicator)
+      const data = await enrichIOC(ioc)
       if (data.enriched) {
         setCachedEnrichment(ioc.indicator, data)
         updates[ioc.indicator] = data
