@@ -9,11 +9,43 @@ import {
   enrichWithVirusTotal,
 } from '../services/iocEnrichment'
 import { SOURCE_TO_FEED_ID } from '../data/feedConfig'
-import { autoEnrichIPs } from '../services/autoEnrich'
 import IocInvestigator from './IocInvestigator'
 import localIOCs from '../data/iocs.json'
 
 const PER_PAGE = 50
+
+const EXTERNAL_QUICK_LINKS = [
+  { label: 'Check in ThreatFox', url: (i) => `https://threatfox.abuse.ch/browse.php?q=${encodeURIComponent(i)}` },
+  { label: 'Check in URLhaus', url: (i) => `https://urlhaus.abuse.ch/browse.php?q=${encodeURIComponent(i)}` },
+  { label: 'Lookup on VirusTotal', url: (i) => `https://www.virustotal.com/gui/search/${encodeURIComponent(i)}` },
+  { label: 'Check AbuseIPDB', url: (i) => `https://www.abuseipdb.com/check/${encodeURIComponent(i)}` },
+  { label: 'Search on Shodan', url: (i) => `https://www.shodan.io/search?query=${encodeURIComponent(i)}` },
+  { label: 'Query MalwareBazaar', url: (i) => `https://bazaar.abuse.ch/browse.php?q=${encodeURIComponent(i)}` },
+]
+
+function detectIOCType(value) {
+  const v = value.trim()
+  if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(v)) return 'IP'
+  if (/^[a-f0-9]{64}$/i.test(v)) return 'SHA256'
+  if (/^[a-f0-9]{32}$/i.test(v)) return 'MD5'
+  if (/^https?:\/\//i.test(v)) return 'URL'
+  return 'Domain'
+}
+
+function loadRecentSearches() {
+  try {
+    return JSON.parse(localStorage.getItem('recentIOCSearches') || '[]')
+  } catch {
+    return []
+  }
+}
+
+function typeBadgeStyle(type) {
+  if (type === 'IP') return { background: '#0d2045', color: '#58a6ff', border: '1px solid #58a6ff44' }
+  if (type === 'SHA256' || type === 'MD5') return { background: '#2d1a3d', color: '#a371f7', border: '1px solid #a371f744' }
+  if (type === 'URL') return { background: '#0d2d1a', color: '#3fb950', border: '1px solid #3fb95040' }
+  return { background: '#21262d', color: '#8b949e', border: '1px solid #30363d' }
+}
 
 function mergeCachedEnrichment(iocList) {
   return iocList.map((ioc) => {
@@ -91,7 +123,6 @@ export default function IocTracker() {
   const [showKQLModal, setShowKQLModal] = useState(false)
   const [generatedKQL, setGeneratedKQL] = useState('')
   const [sort, setSort] = useState({ column: 'dateAdded', direction: 'desc' })
-  const [enrichProgress, setEnrichProgress] = useState({ done: 0, total: 0 })
   const [whitelistedIPs, setWhitelistedIPs] = useState(
     JSON.parse(localStorage.getItem('iocWhitelist') || '[]')
   )
@@ -99,11 +130,21 @@ export default function IocTracker() {
   const [copyMsg, setCopyMsg] = useState('')
   const [whitelistConfirm, setWhitelistConfirm] = useState(null)
   const [enrichingSource, setEnrichingSource] = useState(null)
+  const [enrichingBulk, setEnrichingBulk] = useState(false)
   const [investigatingIOC, setInvestigatingIOC] = useState(null)
+  const [externalIOC, setExternalIOC] = useState('')
+  const [externalIOCType, setExternalIOCType] = useState('Domain')
+  const [recentSearches, setRecentSearches] = useState(loadRecentSearches)
 
   useEffect(() => {
     loadIOCs()
   }, [])
+
+  useEffect(() => {
+    if (externalIOC.trim()) {
+      setExternalIOCType(detectIOCType(externalIOC))
+    }
+  }, [externalIOC])
 
   async function loadIOCs() {
     setLoading(true)
@@ -127,21 +168,6 @@ export default function IocTracker() {
       setFeedStatus(result?.feedStatus || {})
       setLastUpdated(new Date())
       window.dispatchEvent(new CustomEvent('iocCountUpdate', { detail: { count: withCache.length } }))
-
-      setTimeout(() => {
-        setEnrichProgress({ done: 0, total: 0 })
-        autoEnrichIPs(
-          withCache,
-          (done, total) => setEnrichProgress({ done, total }),
-          (indicator, data) => {
-            setIocs((prev) =>
-              prev.map((i) =>
-                i.indicator === indicator ? applyEnrichmentUpdate(i, data) : i
-              )
-            )
-          }
-        )
-      }, 2000)
     } catch (err) {
       console.error('IOC fetch error:', err)
       const filtered = mergeCachedEnrichment(
@@ -150,21 +176,6 @@ export default function IocTracker() {
       setIocs(filtered)
       setError('Live feeds unavailable - showing cached data')
       window.dispatchEvent(new CustomEvent('iocCountUpdate', { detail: { count: filtered.length } }))
-
-      setTimeout(() => {
-        setEnrichProgress({ done: 0, total: 0 })
-        autoEnrichIPs(
-          filtered,
-          (done, total) => setEnrichProgress({ done, total }),
-          (indicator, data) => {
-            setIocs((prev) =>
-              prev.map((i) =>
-                i.indicator === indicator ? applyEnrichmentUpdate(i, data) : i
-              )
-            )
-          }
-        )
-      }, 2000)
     } finally {
       setLoading(false)
     }
@@ -183,6 +194,72 @@ export default function IocTracker() {
     setWhitelistedIPs(list)
     localStorage.setItem('iocWhitelist', JSON.stringify(list))
     loadIOCs()
+  }
+
+  function saveRecentSearch(indicator) {
+    const trimmed = indicator.trim()
+    if (!trimmed) return
+    const updated = [trimmed, ...loadRecentSearches().filter((r) => r !== trimmed)].slice(0, 5)
+    localStorage.setItem('recentIOCSearches', JSON.stringify(updated))
+    setRecentSearches(updated)
+  }
+
+  function removeRecentSearch(indicator) {
+    const updated = recentSearches.filter((r) => r !== indicator)
+    localStorage.setItem('recentIOCSearches', JSON.stringify(updated))
+    setRecentSearches(updated)
+  }
+
+  function clearRecentSearches() {
+    localStorage.setItem('recentIOCSearches', '[]')
+    setRecentSearches([])
+  }
+
+  function buildSyntheticIOC(indicator, detectedType) {
+    return {
+      indicator: indicator.trim(),
+      type: detectedType,
+      source: 'Manual Search',
+      confidence: 'Unknown',
+      status: 'investigating',
+      ttp: 'Unknown',
+      malwareFamily: 'Unknown',
+      logSource: detectedType === 'IP'
+        ? 'CommonSecurityLog'
+        : detectedType === 'SHA256' || detectedType === 'MD5'
+          ? 'MDE'
+          : 'ASimDnsActivityLogs',
+      dateAdded: new Date().toISOString().split('T')[0],
+    }
+  }
+
+  function handleExternalInvestigate() {
+    const trimmed = externalIOC.trim()
+    if (!trimmed) return
+    const detectedType = detectIOCType(trimmed)
+    saveRecentSearch(trimmed)
+    setInvestigatingIOC(buildSyntheticIOC(trimmed, detectedType))
+  }
+
+  async function enrichSelected() {
+    const sel = iocs.filter((i) => selected.has(i.indicator))
+    if (sel.length === 0) return
+    setEnrichingBulk(true)
+    try {
+      for (const ioc of sel) {
+        const data = await enrichIOC(ioc)
+        if (data?.enriched) {
+          const merged = { ...getCachedEnrichment(ioc.indicator), ...data, enriched: true }
+          setCachedEnrichment(ioc.indicator, merged)
+          setIocs((prev) =>
+            prev.map((i) => (i.indicator === ioc.indicator ? applyEnrichmentUpdate(i, merged) : i))
+          )
+        }
+        await new Promise((r) => setTimeout(r, 400))
+      }
+    } finally {
+      setEnrichingBulk(false)
+    }
   }
 
   async function enrichWithSource(ioc, source) {
@@ -340,6 +417,77 @@ export default function IocTracker() {
   return (
     <div>
       {error && <div style={{background:"#3d1a1a",border:"1px solid #f85149",borderRadius:6,padding:"8px 12px",marginBottom:12,fontSize:12,color:"#f85149"}}>{error}</div>}
+
+      <div style={{background:"#161b22",border:"1px solid #30363d",borderRadius:8,padding:"1rem",marginBottom:12}}>
+        <div style={{fontSize:14,fontWeight:600,color:"#f0f6fc",marginBottom:4}}>🔍 Investigate Any IOC</div>
+        <div style={{fontSize:11,color:"#8b949e",marginBottom:12}}>Search any IP, domain, URL, or hash across all threat intel sources</div>
+        <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:externalIOC.trim() ? 10 : 0,flexWrap:"wrap"}}>
+          <input
+            value={externalIOC}
+            onChange={(e) => setExternalIOC(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleExternalInvestigate()}
+            placeholder="Enter IP, domain, URL, or file hash (MD5/SHA256)..."
+            style={{flex:1,minWidth:200,padding:"10px 14px",background:"#0d1117",border:"1px solid #30363d",borderRadius:6,color:"#c9d1d9",fontSize:13,outline:"none"}}
+          />
+          {externalIOC.trim() && (
+            <span style={{fontSize:10,padding:"4px 10px",borderRadius:4,fontWeight:600,...typeBadgeStyle(externalIOCType)}}>
+              {externalIOCType}
+            </span>
+          )}
+          <button
+            onClick={handleExternalInvestigate}
+            disabled={!externalIOC.trim()}
+            style={{padding:"10px 18px",background:"#58a6ff",border:"none",borderRadius:6,color:"#0d1117",fontSize:12,fontWeight:600,cursor:externalIOC.trim() ? "pointer" : "default",opacity:externalIOC.trim() ? 1 : 0.5}}
+          >
+            Investigate
+          </button>
+        </div>
+        {externalIOC.trim() && (
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>
+            {EXTERNAL_QUICK_LINKS.map((link) => (
+              <a
+                key={link.label}
+                href={link.url(externalIOC.trim())}
+                target="_blank"
+                rel="noreferrer"
+                style={{fontSize:10,padding:"4px 10px",background:"#21262d",border:"1px solid #30363d",borderRadius:20,color:"#8b949e",textDecoration:"none"}}
+              >
+                {link.label}
+              </a>
+            ))}
+          </div>
+        )}
+        {recentSearches.length > 0 && (
+          <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",marginTop:8,paddingTop:8,borderTop:"1px solid #21262d"}}>
+            <span style={{fontSize:10,color:"#8b949e"}}>Recent:</span>
+            {recentSearches.map((item) => (
+              <span key={item} style={{display:"inline-flex",alignItems:"center",gap:4,fontSize:10,padding:"3px 8px",background:"#21262d",border:"1px solid #30363d",borderRadius:20,color:"#c9d1d9"}}>
+                <button
+                  type="button"
+                  onClick={() => setExternalIOC(item)}
+                  style={{background:"none",border:"none",color:"#c9d1d9",fontSize:10,cursor:"pointer",fontFamily:"monospace",padding:0}}
+                >
+                  {item}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => removeRecentSearch(item)}
+                  style={{background:"none",border:"none",color:"#8b949e",fontSize:10,cursor:"pointer",padding:0,lineHeight:1}}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+            <button
+              type="button"
+              onClick={clearRecentSearches}
+              style={{background:"none",border:"none",color:"#58a6ff",fontSize:10,cursor:"pointer",padding:0}}
+            >
+              Clear all
+            </button>
+          </div>
+        )}
+      </div>
       
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12,flexWrap:"wrap",gap:8}}>
         <div style={{display:"flex",alignItems:"center",gap:8}}>
@@ -365,25 +513,6 @@ export default function IocTracker() {
           </span>
         ))}
       </div>
-
-      {enrichProgress.total > 0 && enrichProgress.done < enrichProgress.total && (
-        <div style={{ marginBottom: 12 }}>
-          <div style={{ fontSize: 11, color: '#8b949e', marginBottom: 4 }}>
-            Auto-enriching IPs: {enrichProgress.done}/{enrichProgress.total}
-          </div>
-          <div style={{ height: 3, background: '#21262d', borderRadius: 2, overflow: 'hidden' }}>
-            <div
-              style={{
-                height: '100%',
-                width: `${(enrichProgress.done / enrichProgress.total) * 100}%`,
-                background: '#58a6ff',
-                borderRadius: 2,
-                transition: 'width 0.3s ease',
-              }}
-            />
-          </div>
-        </div>
-      )}
 
       <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:8,marginBottom:12}}>
         {[
@@ -595,13 +724,22 @@ export default function IocTracker() {
           <button onClick={()=>setPage(p=>Math.min(totalPages,p+1))} disabled={page===totalPages} style={{padding:"5px 10px",background:"#21262d",border:"1px solid #30363d",borderRadius:6,color:page===totalPages?"#484f58":"#c9d1d9",fontSize:12,cursor:page===totalPages?"default":"pointer"}}>Next →</button>
         </div>
         {selected.size>0 && (
-          <button onClick={()=>{
-            const sel = iocs.filter(i=>selected.has(i.indicator))
-            setGeneratedKQL(generateWatchlistKQL(sel))
-            setShowKQLModal(true)
-          }} style={{padding:"6px 14px",background:"#0d2045",border:"1px solid #58a6ff44",borderRadius:6,color:"#58a6ff",fontSize:12,cursor:"pointer"}}>
-            Generate Watchlist KQL ({selected.size})
-          </button>
+          <>
+            <button
+              onClick={enrichSelected}
+              disabled={enrichingBulk}
+              style={{padding:"6px 14px",background:"#21262d",border:"1px solid #30363d",borderRadius:6,color:"#c9d1d9",fontSize:12,cursor:enrichingBulk ? "default" : "pointer",opacity:enrichingBulk ? 0.6 : 1}}
+            >
+              {enrichingBulk ? 'Enriching...' : `Enrich Selected (${selected.size})`}
+            </button>
+            <button onClick={()=>{
+              const sel = iocs.filter(i=>selected.has(i.indicator))
+              setGeneratedKQL(generateWatchlistKQL(sel))
+              setShowKQLModal(true)
+            }} style={{padding:"6px 14px",background:"#0d2045",border:"1px solid #58a6ff44",borderRadius:6,color:"#58a6ff",fontSize:12,cursor:"pointer"}}>
+              Generate Watchlist KQL ({selected.size})
+            </button>
+          </>
         )}
       </div>
 
