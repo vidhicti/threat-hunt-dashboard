@@ -10,6 +10,7 @@ import {
 } from '../services/iocEnrichment'
 import { SOURCE_TO_FEED_ID } from '../data/feedConfig'
 import { autoEnrichIPs } from '../services/autoEnrich'
+import IocInvestigator from './IocInvestigator'
 import localIOCs from '../data/iocs.json'
 
 const PER_PAGE = 50
@@ -98,6 +99,7 @@ export default function IocTracker() {
   const [copyMsg, setCopyMsg] = useState('')
   const [whitelistConfirm, setWhitelistConfirm] = useState(null)
   const [enrichingSource, setEnrichingSource] = useState(null)
+  const [investigatingIOC, setInvestigatingIOC] = useState(null)
 
   useEffect(() => {
     loadIOCs()
@@ -455,7 +457,7 @@ export default function IocTracker() {
                   <td style={{padding:"8px",fontSize:11,color:"#8b949e",whiteSpace:"nowrap"}}>{ioc.dateAdded}</td>
                   <td style={{padding:"8px"}}>
                     <div style={{display:"flex",gap:4}}>
-                      <button onClick={e=>{e.stopPropagation();setExpandedRow(expandedRow===i?null:i)}} style={{padding:"2px 6px",background:"#21262d",border:"1px solid #30363d",borderRadius:4,color:"#c9d1d9",fontSize:10,cursor:"pointer"}}>🔍</button>
+                      <button onClick={e=>{e.stopPropagation();setInvestigatingIOC(ioc)}} style={{padding:"2px 6px",background:"#21262d",border:"1px solid #30363d",borderRadius:4,color:"#c9d1d9",fontSize:10,cursor:"pointer"}} title="Investigate">🔍</button>
                       <button onClick={e=>{e.stopPropagation();copyText(generateIOCKQL(ioc))}} style={{padding:"2px 6px",background:"#21262d",border:"1px solid #30363d",borderRadius:4,color:"#c9d1d9",fontSize:10,cursor:"pointer"}}>📋</button>
                       <button onClick={e=>{e.stopPropagation();setWhitelistConfirm(ioc.indicator)}} style={{padding:"2px 6px",background:"#21262d",border:"1px solid #30363d",borderRadius:4,color:"#c9d1d9",fontSize:10,cursor:"pointer"}}>🚫</button>
                     </div>
@@ -664,6 +666,20 @@ export default function IocTracker() {
             </div>
           </div>
         </div>
+      )}
+
+      {investigatingIOC && (
+        <IocInvestigator
+          ioc={investigatingIOC}
+          onClose={() => setInvestigatingIOC(null)}
+          onAddToWatchlist={(ioc) => {
+            setSelected((prev) => new Set([...prev, ioc.indicator]))
+          }}
+          onWhitelist={(indicator) => {
+            addToWhitelist(indicator)
+            setInvestigatingIOC(null)
+          }}
+        />
       )}
 
       {copyMsg && (
