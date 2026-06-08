@@ -1,4 +1,12 @@
 {
+  "functions": {
+    "api/feeds1.js": { "maxDuration": 30 },
+    "api/feeds2.js": { "maxDuration": 30 },
+    "api/feeds3.js": { "maxDuration": 30 },
+    "api/virustotal.js": { "maxDuration": 10 },
+    "api/abuseipdb.js": { "maxDuration": 10 },
+    "api/shodan.js": { "maxDuration": 10 }
+  },
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/$1" }
   ]

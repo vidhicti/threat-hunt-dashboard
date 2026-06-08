@@ -12,10 +12,11 @@ export default async function handler(req, res) {
       const r = await fetch('https://threatfox-api.abuse.ch/api/v1/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: 'get_iocs', days: 7 }),
+        body: JSON.stringify({ query: 'get_iocs', days: 3 }),
+        signal: AbortSignal.timeout(8000),
       })
       const data = await r.json()
-      iocs = (data.data || []).slice(0, 300).map((ioc) => ({
+      iocs = (data.data || []).slice(0, 200).map((ioc) => ({
         indicator: ioc.ioc,
         type: ioc.ioc_type,
         ttp: ioc.malware || 'Unknown',
@@ -32,7 +33,8 @@ export default async function handler(req, res) {
       const r = await fetch('https://urlhaus-api.abuse.ch/v1/urls/recent/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: 'get_urls', limit: 200 }),
+        body: JSON.stringify({ query: 'get_urls', limit: 100 }),
+        signal: AbortSignal.timeout(8000),
       })
       const data = await r.json()
       iocs = (data.urls || []).map((u) => ({
@@ -49,9 +51,11 @@ export default async function handler(req, res) {
         threatType: 'Malware Distribution',
       }))
     } else if (feed === 'feodotracker') {
-      const r = await fetch('https://feodotracker.abuse.ch/downloads/ipblocklist.json')
+      const r = await fetch('https://feodotracker.abuse.ch/downloads/ipblocklist.json', {
+        signal: AbortSignal.timeout(8000),
+      })
       const data = await r.json()
-      iocs = (data || []).slice(0, 300).map((item) => ({
+      iocs = (data || []).slice(0, 200).map((item) => ({
         indicator: item.ip_address,
         type: 'IP',
         ttp: 'T1071 C2 Botnet',
@@ -70,6 +74,7 @@ export default async function handler(req, res) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: 'get_recent', selector: '100' }),
+        signal: AbortSignal.timeout(8000),
       })
       const data = await r.json()
       iocs = (data.data || []).map((item) => ({

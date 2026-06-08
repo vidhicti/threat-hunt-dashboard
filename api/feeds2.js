@@ -10,11 +10,13 @@ export default async function handler(req, res) {
     let iocs = []
 
     if (feed === 'emergingthreats') {
-      const r = await fetch('https://rules.emergingthreats.net/blockrules/compromised-ips.txt')
+      const r = await fetch('https://rules.emergingthreats.net/blockrules/compromised-ips.txt', {
+        signal: AbortSignal.timeout(8000),
+      })
       const text = await r.text()
       iocs = text.split('\n')
         .filter((l) => l && !l.startsWith('#') && l.match(/^\d+\.\d+\.\d+\.\d+/))
-        .slice(0, 300)
+        .slice(0, 200)
         .map((line) => ({
           indicator: line.trim(),
           type: 'IP',
@@ -29,11 +31,13 @@ export default async function handler(req, res) {
           threatType: 'Compromised IP',
         }))
     } else if (feed === 'cinsarmy') {
-      const r = await fetch('https://cinsscore.com/list/ci-badguys.txt')
+      const r = await fetch('https://cinsscore.com/list/ci-badguys.txt', {
+        signal: AbortSignal.timeout(8000),
+      })
       const text = await r.text()
       iocs = text.split('\n')
         .filter((l) => l && !l.startsWith('#') && l.match(/^\d+\.\d+\.\d+\.\d+/))
-        .slice(0, 300)
+        .slice(0, 200)
         .map((ip) => ({
           indicator: ip.trim(),
           type: 'IP',
@@ -48,39 +52,31 @@ export default async function handler(req, res) {
           threatType: 'Malicious IP',
         }))
     } else if (feed === 'sslblacklist') {
-      const urls = [
-        'https://sslbl.abuse.ch/blacklist/sslipblacklist_aggressive.json',
-        'https://sslbl.abuse.ch/blacklist/sslipblacklist.json',
-      ]
-      for (const url of urls) {
-        try {
-          const r = await fetch(url, {
-            headers: { 'User-Agent': 'threat-hunt-dashboard/1.0' },
-            signal: AbortSignal.timeout(8000),
-          })
-          if (!r.ok) continue
+      try {
+        const r = await fetch('https://sslbl.abuse.ch/blacklist/sslipblacklist_aggressive.json', {
+          headers: { 'User-Agent': 'threat-hunt-dashboard/1.0' },
+          signal: AbortSignal.timeout(8000),
+        })
+        if (r.ok) {
           const data = await r.json()
           const list = data.blacklist || []
-          if (list.length > 0) {
-            iocs = list.map((item) => ({
-              indicator: item.Destination,
-              type: 'IP',
-              ttp: 'T1071.001 C2 over SSL',
-              ttpId: 'T1071.001',
-              source: 'SSL Blacklist',
-              logSource: 'CommonSecurityLog',
-              confidence: 'High',
-              status: 'active',
-              dateAdded: item.Listingdate?.split(' ')[0] || t,
-              malwareFamily: item.Listingreason || 'SSL C2',
-              threatType: 'SSL C2',
-              port: item.DstPort,
-            })).filter((i) => i.indicator?.match(/^\d+\.\d+\.\d+\.\d+$/))
-            break
-          }
-        } catch {
-          continue
+          iocs = list.map((item) => ({
+            indicator: item.Destination,
+            type: 'IP',
+            ttp: 'T1071.001 C2 over SSL',
+            ttpId: 'T1071.001',
+            source: 'SSL Blacklist',
+            logSource: 'CommonSecurityLog',
+            confidence: 'High',
+            status: 'active',
+            dateAdded: item.Listingdate?.split(' ')[0] || t,
+            malwareFamily: item.Listingreason || 'SSL C2',
+            threatType: 'SSL C2',
+            port: item.DstPort,
+          })).filter((i) => i.indicator?.match(/^\d+\.\d+\.\d+\.\d+$/))
         }
+      } catch {
+        iocs = []
       }
     }
 
