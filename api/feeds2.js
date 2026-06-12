@@ -55,28 +55,26 @@ export default async function handler(req, res) {
       try {
         const r = await fetch('https://sslbl.abuse.ch/blacklist/sslipblacklist_aggressive.json', {
           headers: { 'User-Agent': 'threat-hunt-dashboard/1.0' },
-          signal: AbortSignal.timeout(8000),
+          signal: AbortSignal.timeout(6000),
         })
-        if (r.ok) {
-          const data = await r.json()
-          const list = data.blacklist || []
-          iocs = list.map((item) => ({
-            indicator: item.Destination,
-            type: 'IP',
-            ttp: 'T1071.001 C2 over SSL',
-            ttpId: 'T1071.001',
-            source: 'SSL Blacklist',
-            logSource: 'CommonSecurityLog',
-            confidence: 'High',
-            status: 'active',
-            dateAdded: item.Listingdate?.split(' ')[0] || t,
-            malwareFamily: item.Listingreason || 'SSL C2',
-            threatType: 'SSL C2',
-            port: item.DstPort,
-          })).filter((i) => i.indicator?.match(/^\d+\.\d+\.\d+\.\d+$/))
-        }
-      } catch {
-        iocs = []
+        if (!r.ok) return res.status(200).json({ success: false, error: `SSL Blacklist HTTP ${r.status}`, iocs: [] })
+        const data = await r.json()
+        iocs = (data.blacklist || []).map((item) => ({
+          indicator: item.Destination,
+          type: 'IP',
+          ttp: 'T1071.001 C2 over SSL',
+          ttpId: 'T1071.001',
+          source: 'SSL Blacklist',
+          logSource: 'CommonSecurityLog',
+          confidence: 'High',
+          status: 'active',
+          dateAdded: item.Listingdate?.split(' ')[0] || t,
+          malwareFamily: item.Listingreason || 'SSL C2',
+          threatType: 'SSL C2',
+          port: item.DstPort,
+        })).filter((i) => i.indicator?.match(/^\d+\.\d+\.\d+\.\d+$/))
+      } catch (e) {
+        return res.status(200).json({ success: false, error: `SSL Blacklist: ${e.message}`, iocs: [] })
       }
     }
 

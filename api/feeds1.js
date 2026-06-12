@@ -5,18 +5,19 @@ export default async function handler(req, res) {
 
   const feed = req.query.feed || req.body?.feed
 
-  try {
-    let iocs = []
+  let iocs = []
 
-    if (feed === 'threatfox') {
+  if (feed === 'threatfox') {
+    try {
       const r = await fetch('https://threatfox-api.abuse.ch/api/v1/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: 'get_iocs', days: 3 }),
-        signal: AbortSignal.timeout(8000),
+        body: JSON.stringify({ query: 'get_iocs', days: 1 }),
+        signal: AbortSignal.timeout(6000),
       })
+      if (!r.ok) return res.status(200).json({ success: false, error: `ThreatFox HTTP ${r.status}`, iocs: [] })
       const data = await r.json()
-      iocs = (data.data || []).slice(0, 200).map((ioc) => ({
+      iocs = (data.data || []).slice(0, 100).map((ioc) => ({
         indicator: ioc.ioc,
         type: ioc.ioc_type,
         ttp: ioc.malware || 'Unknown',
@@ -29,13 +30,19 @@ export default async function handler(req, res) {
         malwareFamily: ioc.malware,
         threatType: ioc.threat_type,
       }))
-    } else if (feed === 'urlhaus') {
+    } catch (e) {
+      return res.status(200).json({ success: false, error: `ThreatFox: ${e.message}`, iocs: [] })
+    }
+
+  } else if (feed === 'urlhaus') {
+    try {
       const r = await fetch('https://urlhaus-api.abuse.ch/v1/urls/recent/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: 'get_urls', limit: 100 }),
-        signal: AbortSignal.timeout(8000),
+        body: JSON.stringify({ query: 'get_urls', limit: 50 }),
+        signal: AbortSignal.timeout(6000),
       })
+      if (!r.ok) return res.status(200).json({ success: false, error: `URLhaus HTTP ${r.status}`, iocs: [] })
       const data = await r.json()
       iocs = (data.urls || []).map((u) => ({
         indicator: u.url,
@@ -50,12 +57,18 @@ export default async function handler(req, res) {
         malwareFamily: u.tags?.join(', ') || 'Unknown',
         threatType: 'Malware Distribution',
       }))
-    } else if (feed === 'feodotracker') {
+    } catch (e) {
+      return res.status(200).json({ success: false, error: `URLhaus: ${e.message}`, iocs: [] })
+    }
+
+  } else if (feed === 'feodotracker') {
+    try {
       const r = await fetch('https://feodotracker.abuse.ch/downloads/ipblocklist.json', {
-        signal: AbortSignal.timeout(8000),
+        signal: AbortSignal.timeout(6000),
       })
+      if (!r.ok) return res.status(200).json({ success: false, error: `FeodoTracker HTTP ${r.status}`, iocs: [] })
       const data = await r.json()
-      iocs = (data || []).slice(0, 200).map((item) => ({
+      iocs = (data || []).slice(0, 100).map((item) => ({
         indicator: item.ip_address,
         type: 'IP',
         ttp: 'T1071 C2 Botnet',
@@ -69,13 +82,19 @@ export default async function handler(req, res) {
         threatType: 'Botnet C2',
         port: item.port,
       }))
-    } else if (feed === 'malwarebazaar') {
+    } catch (e) {
+      return res.status(200).json({ success: false, error: `FeodoTracker: ${e.message}`, iocs: [] })
+    }
+
+  } else if (feed === 'malwarebazaar') {
+    try {
       const r = await fetch('https://mb-api.abuse.ch/api/v1/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: 'get_recent', selector: '100' }),
-        signal: AbortSignal.timeout(8000),
+        body: JSON.stringify({ query: 'get_recent', selector: '50' }),
+        signal: AbortSignal.timeout(6000),
       })
+      if (!r.ok) return res.status(200).json({ success: false, error: `MalwareBazaar HTTP ${r.status}`, iocs: [] })
       const data = await r.json()
       iocs = (data.data || []).map((item) => ({
         indicator: item.sha256_hash,
@@ -92,12 +111,15 @@ export default async function handler(req, res) {
         fileName: item.file_name,
         fileType: item.file_type,
       }))
+    } catch (e) {
+      return res.status(200).json({ success: false, error: `MalwareBazaar: ${e.message}`, iocs: [] })
     }
 
-    res.status(200).json({ success: true, count: iocs.length, iocs })
-  } catch (e) {
-    res.status(200).json({ success: false, error: e.message, iocs: [] })
+  } else {
+    return res.status(400).json({ success: false, error: `Unknown feed: ${feed}`, iocs: [] })
   }
+
+  res.status(200).json({ success: true, count: iocs.length, iocs })
 }
 
 function mapLogSource(type) {
