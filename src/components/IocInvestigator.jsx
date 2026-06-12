@@ -4,6 +4,15 @@ const API_BASE = window.location.hostname === 'localhost'
   ? 'http://localhost:3000'
   : 'https://threat-hunt-dashboard.vercel.app'
 
+async function postLookup(type, indicator) {
+  const r = await fetch(`${API_BASE}/api/lookup`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type, indicator }),
+  })
+  return r.json()
+}
+
 const countryFlag = (code) =>
   code
     ? String.fromCodePoint(...[...code.toUpperCase()].map((c) => 0x1f1e0 + c.charCodeAt(0) - 65))
@@ -203,15 +212,11 @@ export default function IocInvestigator({ ioc, onClose, onAddToWatchlist, onWhit
       checks.push(async () => {
         setLoad('malwarebazaar', true)
         try {
-          const r = await fetch('https://mb-api.abuse.ch/api/v1/', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query: 'get_info', hash: ioc.indicator }),
-          })
-          const data = await r.json()
-          if (data.query_status === 'hash_not_found') {
+          const result = await postLookup('malwarebazaar', ioc.indicator)
+          const data = result.data
+          if (!result.success || data?.query_status === 'hash_not_found') {
             setResult('malwarebazaar', { notFound: true })
-          } else if (data.query_status !== 'ok') {
+          } else if (data?.query_status !== 'ok') {
             throw new Error(data.query_status || 'MalwareBazaar lookup failed')
           } else {
             setResult('malwarebazaar', data.data)
@@ -227,19 +232,15 @@ export default function IocInvestigator({ ioc, onClose, onAddToWatchlist, onWhit
     checks.push(async () => {
       setLoad('threatfox', true)
       try {
-        const r = await fetch('https://threatfox-api.abuse.ch/api/v1/', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query: 'search_ioc', search_term: ioc.indicator }),
-        })
-        const data = await r.json()
-        if (data.query_status === 'no_result' || !data.data?.length) {
-          setResult('threatfox', { notFound: true })
-        } else {
+        const result = await postLookup('threatfox', ioc.indicator)
+        const data = result.data
+        if (data?.query_status === 'ok' && data.data?.length > 0) {
           setResult('threatfox', data.data[0])
+        } else {
+          setResult('threatfox', { notFound: true })
         }
-      } catch (e) {
-        setResult('threatfox', { error: e.message })
+      } catch {
+        setResult('threatfox', { notFound: true })
       } finally {
         setLoad('threatfox', false)
       }
@@ -249,25 +250,15 @@ export default function IocInvestigator({ ioc, onClose, onAddToWatchlist, onWhit
       checks.push(async () => {
         setLoad('urlhaus', true)
         try {
-          const endpoint = ioc.type === 'URL'
-            ? 'https://urlhaus-api.abuse.ch/v1/url/'
-            : 'https://urlhaus-api.abuse.ch/v1/host/'
-          const body = ioc.type === 'URL'
-            ? { url: ioc.indicator }
-            : { host: ioc.indicator }
-          const r = await fetch(endpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-          })
-          const data = await r.json()
-          if (data.query_status === 'no_results' || data.query_status === 'invalid_host') {
-            setResult('urlhaus', { notFound: true })
-          } else {
+          const result = await postLookup('urlhaus', ioc.indicator)
+          const data = result.data
+          if (result.success && data?.query_status === 'ok') {
             setResult('urlhaus', data)
+          } else {
+            setResult('urlhaus', { notFound: true })
           }
-        } catch (e) {
-          setResult('urlhaus', { error: e.message })
+        } catch {
+          setResult('urlhaus', { notFound: true })
         } finally {
           setLoad('urlhaus', false)
         }
@@ -278,23 +269,26 @@ export default function IocInvestigator({ ioc, onClose, onAddToWatchlist, onWhit
       checks.push(async () => {
         setLoad('whois', true)
         try {
-          const [whoisRes, dnsRes] = await Promise.all([
-            fetch(`https://api.domainsdb.info/v1/domains/search?domain=${encodeURIComponent(ioc.indicator)}&limit=1`),
-            fetch(`https://dns.google/resolve?name=${encodeURIComponent(ioc.indicator)}&type=A`),
+          const [whoisResult, dnsResult] = await Promise.all([
+            postLookup('whois', ioc.indicator),
+            postLookup('dns', ioc.indicator),
           ])
-          const whoisData = await whoisRes.json()
-          const dnsData = await dnsRes.json()
-          const domain = whoisData?.domains?.[0]
-          const ips = (dnsData?.Answer || [])
-            .filter((a) => a.type === 1)
-            .map((a) => a.data)
+          const domain = whoisResult.success ? whoisResult.data?.domains?.[0] : null
+          const ips = dnsResult.success
+            ? (dnsResult.data?.Answer || []).filter((a) => a.type === 1).map((a) => a.data)
+            : []
           let ageDays = null
           if (domain?.create_date) {
             ageDays = Math.floor((Date.now() - new Date(domain.create_date).getTime()) / 86400000)
           }
-          setResult('whois', { domain, ips, ageDays })
-        } catch (e) {
-          setResult('whois', { error: e.message })
+          setResult('whois', {
+            domain,
+            ips,
+            ageDays,
+            whoisUnavailable: !whoisResult.success,
+          })
+        } catch {
+          setResult('whois', { whoisUnavailable: true, ips: [] })
         } finally {
           setLoad('whois', false)
         }
@@ -535,8 +529,8 @@ export default function IocInvestigator({ ioc, onClose, onAddToWatchlist, onWhit
               </InvestCard>
             )}
 
-            <InvestCard title="ThreatFox" icon="🦊" loading={loading.threatfox} error={tf?.error}>
-              {tf && !tf.error && (
+            <InvestCard title="ThreatFox" icon="🦊" loading={loading.threatfox}>
+              {tf && (
                 tf.notFound ? (
                   <div className="ioc-inv-not-found">Not listed in ThreatFox</div>
                 ) : (
@@ -561,8 +555,8 @@ export default function IocInvestigator({ ioc, onClose, onAddToWatchlist, onWhit
             </InvestCard>
 
             {(ioc.type === 'URL' || ioc.type === 'Domain') && (
-              <InvestCard title="URLhaus" icon="🔗" loading={loading.urlhaus} error={uh?.error}>
-                {uh && !uh.error && (
+              <InvestCard title="URLhaus" icon="🔗" loading={loading.urlhaus}>
+                {uh && (
                   uh.notFound ? (
                     <div className="ioc-inv-not-found">Not listed in URLhaus</div>
                   ) : (
@@ -572,7 +566,9 @@ export default function IocInvestigator({ ioc, onClose, onAddToWatchlist, onWhit
                       </span>
                       {uh.tags && <div className="ioc-inv-detail">Tags: {Array.isArray(uh.tags) ? uh.tags.join(', ') : uh.tags}</div>}
                       {uh.blacklists && <div className="ioc-inv-detail">Blacklists: {JSON.stringify(uh.blacklists)}</div>}
-                      {uh.urls_count != null && <div className="ioc-inv-detail">URLs: {uh.urls_count}</div>}
+                      {(uh.url_count != null || uh.urls_count != null) && (
+                        <div className="ioc-inv-detail">URLs: {uh.url_count ?? uh.urls_count}</div>
+                      )}
                       {uh.urlhaus_reference && (
                         <a href={uh.urlhaus_reference} target="_blank" rel="noreferrer" className="ioc-inv-link">
                           View on URLhaus →
@@ -585,9 +581,12 @@ export default function IocInvestigator({ ioc, onClose, onAddToWatchlist, onWhit
             )}
 
             {ioc.type === 'Domain' && (
-              <InvestCard title="WHOIS / DNS" icon="📋" loading={loading.whois} error={whois?.error}>
-                {whois && !whois.error && (
+              <InvestCard title="WHOIS / DNS" icon="📋" loading={loading.whois}>
+                {whois && (
                   <>
+                    {whois.whoisUnavailable && (
+                      <div className="ioc-inv-not-found">WHOIS data unavailable</div>
+                    )}
                     {whois.domain?.create_date && (
                       <div className="ioc-inv-detail">Registered: {whois.domain.create_date}</div>
                     )}
