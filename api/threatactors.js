@@ -9,7 +9,7 @@ export default async function handler(req, res) {
 
   try {
     const body = req.method === 'POST' ? req.body : req.query
-    const { groqApiKey, mode, actorName, requirements } = body
+    const { groqApiKey, mode, actorName, requirements, logSourceHint } = body
 
     if (!groqApiKey) {
       return res.status(200).json({ success: false, error: 'Groq API key required' })
@@ -18,36 +18,63 @@ export default async function handler(req, res) {
     let prompt = ''
 
     if (mode === 'trends') {
-      prompt = `List the 6 most active threat actors, ransomware groups, or 
-malware campaigns reported in the last 60 days based on your training data 
-and general knowledge. For each provide:
-- name
-- type (APT/Ransomware/Cybercrime/Initial Access Broker)
-- targetedSectors (array of 2-3 sectors)
-- recentActivity (1-2 sentence summary)
-- mitreTechniques (array of 4-6 TTP IDs like T1566, T1059)
-- severity (critical/high/medium)
-- firstSeen (approximate year/period this group became active)
+      prompt = `List 10 of the most relevant current cyber threats for a SOC 
+threat hunting team, covering ALL of these categories (at least 1 from each 
+category where applicable):
 
-Respond ONLY with a valid JSON array, no markdown, no explanation.
-Example: [{"name":"LockBit","type":"Ransomware","targetedSectors":["Healthcare","Manufacturing"],"recentActivity":"...","mitreTechniques":["T1486","T1490"],"severity":"critical","firstSeen":"2019"}]`
-    } else if (mode === 'historical') {
-      prompt = `List 10 historically significant threat actor groups or APTs 
-(state-sponsored or major cybercrime groups) that security teams should know 
-about for context, even if not currently most active. For each provide:
+1. Ransomware groups (e.g. LockBit, BlackCat, Akira)
+2. Nation-state APT groups (e.g. APT28, APT29, Lazarus)
+3. Initial Access Brokers (IABs)
+4. Banking/financial malware and trojans (e.g. QakBot, IcedID)
+5. Infostealers (e.g. RedLine, Lumma, Vidar)
+6. Botnets (e.g. Emotet successors, Mirai variants)
+7. Phishing-as-a-Service / BEC groups
+8. Supply chain compromise campaigns
+9. Living-off-the-land / fileless malware campaigns
+10. Cloud/SaaS-targeting threats (O365, Azure AD attacks)
+
+For each provide:
 - name
-- type (APT/Ransomware/Cybercrime/Nation-State)
-- origin (suspected country/region if known, else "Unknown")
-- activeYears (e.g. "2014-Present")
-- notableCampaigns (array of 2-3 well-known campaign/incident names)
+- category (one of: "Ransomware","Nation-State APT","Initial Access Broker","Banking Trojan","Infostealer","Botnet","Phishing/BEC","Supply Chain","LOLBin Campaign","Cloud/SaaS Threat")
+- type (APT/Ransomware/Cybercrime/Infostealer/Botnet/IAB)
+- targetedSectors (array of 2-3)
+- recentActivity (1-2 sentences)
+- mitreTechniques (array of 4-6 TTP IDs)
+- severity (critical/high/medium)
+- firstSeen (year)
+- relevantLogSources (array from: "MDE","SecurityEvents","CommonSecurityLog-Fortinet","CommonSecurityLog-PaloAlto","CommonSecurityLog-Sophos","CommonSecurityLog-TrendMicro","ASimDnsActivityLogs","OfficeActivity")
+
+Respond ONLY with valid JSON array, no markdown.`
+    } else if (mode === 'historical') {
+      prompt = `List 12 historically significant and educational threat actor 
+groups/campaigns across these categories for SOC reference:
+
+1. Nation-state APTs (Russia, China, Iran, North Korea origin examples)
+2. Major ransomware families (historical and evolved)
+3. Notorious banking trojans
+4. Significant supply chain attacks
+5. Major botnets
+6. Well-known infostealer operations
+7. Historic worm/wiper malware
+
+For each provide:
+- name
+- category (same categories as above)
+- type
+- origin (country/region or "Unknown")
+- activeYears (e.g. "2014-Present" or "2017-2019")
+- notableCampaigns (array of 2-3)
 - mitreTechniques (array of 4-6 TTP IDs)
 - targetedSectors (array)
+- relevantLogSources (array same options as above)
 - description (1-2 sentences)
 
-Respond ONLY with a valid JSON array, no markdown.
-Example: [{"name":"APT28","type":"Nation-State","origin":"Russia","activeYears":"2004-Present","notableCampaigns":["DNC Hack 2016","Olympic Destroyer"],"mitreTechniques":["T1566","T1078"],"targetedSectors":["Government","Defense"],"description":"..."}]`
+Respond ONLY with valid JSON array, no markdown.`
     } else if (mode === 'hypothesis' && actorName) {
-      prompt = `Generate a threat hunting hypothesis for the threat actor: ${actorName}.
+      const logSourceFocus = logSourceHint?.length
+        ? `\nFocus the hypothesis specifically on these log sources if possible: ${logSourceHint.join(', ')}`
+        : ''
+      prompt = `Generate a threat hunting hypothesis for the threat actor: ${actorName}.${logSourceFocus}
 
 Available Microsoft Sentinel log sources:
 - Fortigate Firewall: CommonSecurityLog where DeviceVendor == "Fortinet"
@@ -117,7 +144,7 @@ Return ONLY valid JSON, no markdown.`
         model: 'llama-3.3-70b-versatile',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.3,
-        max_tokens: 3000,
+        max_tokens: 4000,
       }),
       signal: AbortSignal.timeout(25000),
     })

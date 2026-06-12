@@ -4525,3 +4525,138 @@ body {
   word-break: break-word;
   margin-bottom: 8px;
 }
+
+.lti-category-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 12px 0 14px;
+}
+
+.lti-cat-filter-pill {
+  padding: 5px 10px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+
+.lti-cat-filter-pill:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.lti-cat-filter-pill.active {
+  background: rgba(88, 166, 255, 0.15);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.lti-category-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+
+.lti-cat-ransomware {
+  background: rgba(248, 81, 73, 0.18);
+  color: #f85149;
+  border: 1px solid rgba(248, 81, 73, 0.35);
+}
+
+.lti-cat-nation-state-apt {
+  background: rgba(163, 113, 247, 0.18);
+  color: #a371f7;
+  border: 1px solid rgba(163, 113, 247, 0.35);
+}
+
+.lti-cat-initial-access-broker {
+  background: rgba(210, 153, 34, 0.18);
+  color: #d29922;
+  border: 1px solid rgba(210, 153, 34, 0.35);
+}
+
+.lti-cat-banking-trojan {
+  background: rgba(255, 140, 50, 0.18);
+  color: #ff8c32;
+  border: 1px solid rgba(255, 140, 50, 0.35);
+}
+
+.lti-cat-infostealer {
+  background: rgba(255, 105, 180, 0.18);
+  color: #ff69b4;
+  border: 1px solid rgba(255, 105, 180, 0.35);
+}
+
+.lti-cat-botnet {
+  background: rgba(45, 212, 191, 0.18);
+  color: #2dd4bf;
+  border: 1px solid rgba(45, 212, 191, 0.35);
+}
+
+.lti-cat-phishing-bec {
+  background: rgba(88, 166, 255, 0.18);
+  color: #58a6ff;
+  border: 1px solid rgba(88, 166, 255, 0.35);
+}
+
+.lti-cat-supply-chain {
+  background: rgba(180, 40, 40, 0.22);
+  color: #c93c3c;
+  border: 1px solid rgba(180, 40, 40, 0.4);
+}
+
+.lti-cat-lolbin-campaign {
+  background: rgba(139, 148, 158, 0.18);
+  color: #8b949e;
+  border: 1px solid rgba(139, 148, 158, 0.35);
+}
+
+.lti-cat-cloud-saas-threat {
+  background: rgba(34, 211, 238, 0.18);
+  color: #22d3ee;
+  border: 1px solid rgba(34, 211, 238, 0.35);
+}
+
+.lti-cat-default {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+
+.lti-log-sources {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.lti-log-sources-label {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  margin-right: 2px;
+}
+
+.lti-log-source-badge {
+  font-size: 0.62rem;
+  font-family: monospace;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+.lti-empty-filter {
+  margin: 12px 0 0;
+  font-size: 0.88rem;
+  color: var(--text-muted);
+  text-align: center;
+}

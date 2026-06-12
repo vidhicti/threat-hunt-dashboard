@@ -1,10 +1,36 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 
 const API_BASE = window.location.hostname === 'localhost'
   ? 'http://localhost:3000'
   : 'https://threat-hunt-dashboard.vercel.app'
 
 const CACHE_TTL = 6 * 60 * 60 * 1000
+
+const THREAT_CATEGORIES = [
+  'Ransomware',
+  'Nation-State APT',
+  'Initial Access Broker',
+  'Banking Trojan',
+  'Infostealer',
+  'Botnet',
+  'Phishing/BEC',
+  'Supply Chain',
+  'LOLBin Campaign',
+  'Cloud/SaaS Threat',
+]
+
+const CATEGORY_SLUG = {
+  Ransomware: 'ransomware',
+  'Nation-State APT': 'nation-state-apt',
+  'Initial Access Broker': 'initial-access-broker',
+  'Banking Trojan': 'banking-trojan',
+  Infostealer: 'infostealer',
+  Botnet: 'botnet',
+  'Phishing/BEC': 'phishing-bec',
+  'Supply Chain': 'supply-chain',
+  'LOLBin Campaign': 'lolbin-campaign',
+  'Cloud/SaaS Threat': 'cloud-saas-threat',
+}
 
 const QUICK_CHIPS = [
   'Ransomware pre-staging activity',
@@ -72,6 +98,82 @@ function loadCache(key, setter, timeSetter) {
   }
 }
 
+function filterByCategory(actors, categoryFilter) {
+  if (!categoryFilter || categoryFilter === 'All') return actors
+  return actors.filter((a) => a.category === categoryFilter)
+}
+
+function categoriesInData(actors) {
+  const present = new Set((actors || []).map((a) => a.category).filter(Boolean))
+  return THREAT_CATEGORIES.filter((c) => present.has(c))
+}
+
+function CategoryBadge({ category }) {
+  if (!category) return null
+  const slug = CATEGORY_SLUG[category] || 'default'
+  return <span className={`lti-category-badge lti-cat-${slug}`}>{category}</span>
+}
+
+function LogSourceBadges({ sources }) {
+  if (!sources?.length) return null
+  return (
+    <div className="lti-log-sources">
+      <span className="lti-log-sources-label">Hunt in:</span>
+      {sources.map((s) => (
+        <span key={s} className="lti-log-source-badge">
+          {s}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function CategoryFilterRow({ actors, activeFilter, onFilterChange }) {
+  const available = categoriesInData(actors)
+  if (available.length === 0) return null
+  return (
+    <div className="lti-category-filters">
+      <button
+        type="button"
+        className={`lti-cat-filter-pill ${activeFilter === 'All' ? 'active' : ''}`}
+        onClick={() => onFilterChange('All')}
+      >
+        All
+      </button>
+      {available.map((cat) => (
+        <button
+          key={cat}
+          type="button"
+          className={`lti-cat-filter-pill lti-cat-filter-${CATEGORY_SLUG[cat] || 'default'} ${activeFilter === cat ? 'active' : ''}`}
+          onClick={() => onFilterChange(cat)}
+        >
+          {cat}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function GenerateHypothesisButton({ actor, generatingFor, onGenerate }) {
+  return (
+    <button
+      type="button"
+      className="hyp-generate-btn"
+      disabled={generatingFor === actor.name}
+      onClick={() => onGenerate(actor)}
+    >
+      {generatingFor === actor.name ? (
+        <span className="spinner-wrap">
+          <span className="spinner" aria-hidden="true" />
+          Generating...
+        </span>
+      ) : (
+        'Generate Hunt Hypothesis'
+      )}
+    </button>
+  )
+}
+
 function SkeletonCards({ count = 4 }) {
   return (
     <div className="actor-grid">
@@ -99,6 +201,18 @@ export default function LiveThreatIntel({ onGoToSettings }) {
   const [expandedHyp, setExpandedHyp] = useState(null)
   const [trendsCacheTime, setTrendsCacheTime] = useState(null)
   const [historicalCacheTime, setHistoricalCacheTime] = useState(null)
+  const [trendsCategoryFilter, setTrendsCategoryFilter] = useState('All')
+  const [historicalCategoryFilter, setHistoricalCategoryFilter] = useState('All')
+
+  const filteredTrendingActors = useMemo(
+    () => filterByCategory(trendingActors, trendsCategoryFilter),
+    [trendingActors, trendsCategoryFilter]
+  )
+
+  const filteredHistoricalActors = useMemo(
+    () => filterByCategory(historicalActors, historicalCategoryFilter),
+    [historicalActors, historicalCategoryFilter]
+  )
 
   useEffect(() => {
     try {
@@ -123,6 +237,7 @@ export default function LiveThreatIntel({ onGoToSettings }) {
       const data = await r.json()
       if (!data.success) throw new Error(data.error)
       setTrendingActors(data.data)
+      setTrendsCategoryFilter('All')
       const now = Date.now()
       setTrendsCacheTime(now)
       localStorage.setItem('trendingActorsCache', JSON.stringify({ data: data.data, time: now }))
@@ -145,6 +260,7 @@ export default function LiveThreatIntel({ onGoToSettings }) {
       const data = await r.json()
       if (!data.success) throw new Error(data.error)
       setHistoricalActors(data.data)
+      setHistoricalCategoryFilter('All')
       const now = Date.now()
       setHistoricalCacheTime(now)
       localStorage.setItem('historicalActorsCache', JSON.stringify({ data: data.data, time: now }))
@@ -162,7 +278,12 @@ export default function LiveThreatIntel({ onGoToSettings }) {
       const r = await fetch(`${API_BASE}/api/threatactors`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ groqApiKey: groqKey, mode: 'hypothesis', actorName: actor.name }),
+        body: JSON.stringify({
+          groqApiKey: groqKey,
+          mode: 'hypothesis',
+          actorName: actor.name,
+          logSourceHint: actor.relevantLogSources,
+        }),
       })
       const data = await r.json()
       if (!data.success) throw new Error(data.error)
@@ -307,61 +428,63 @@ export default function LiveThreatIntel({ onGoToSettings }) {
                 <span className="spinner" aria-hidden="true" />
                 Analyzing current threat landscape via AI...
               </div>
-              <SkeletonCards count={6} />
+              <SkeletonCards count={10} />
             </>
           )}
 
           {!loadingTrends && trendingActors.length > 0 && (
-            <div className="actor-grid">
-              {trendingActors.map((actor) => (
-                <article
-                  key={actor.name}
-                  className="actor-card"
-                  style={{ borderTopColor: severityColor(actor.severity) }}
-                >
-                  <div className="actor-card-header">
-                    <h4 style={{ color: severityColor(actor.severity) }}>{actor.name}</h4>
-                    <span className="actor-type-badge">{actor.type}</span>
-                    <span className={`priority-pill priority-${actor.severity}`}>
-                      {actor.severity}
-                    </span>
-                  </div>
-                  {actor.firstSeen && (
-                    <div className="lti-meta">Active since: {actor.firstSeen}</div>
-                  )}
-                  <div className="actor-sectors">
-                    {(actor.targetedSectors || []).map((s) => (
-                      <span key={s} className="sector-pill">
-                        {s}
-                      </span>
-                    ))}
-                  </div>
-                  <p className="actor-activity">{actor.recentActivity}</p>
-                  <div className="actor-ttps">
-                    {(actor.mitreTechniques || []).map((t) => (
-                      <span key={t} className="ttp-badge">
-                        {t}
-                      </span>
-                    ))}
-                  </div>
-                  <button
-                    type="button"
-                    className="hyp-generate-btn"
-                    disabled={generatingFor === actor.name}
-                    onClick={() => generateHypothesisForActor(actor)}
+            <>
+              <CategoryFilterRow
+                actors={trendingActors}
+                activeFilter={trendsCategoryFilter}
+                onFilterChange={setTrendsCategoryFilter}
+              />
+              <div className="actor-grid">
+                {filteredTrendingActors.map((actor) => (
+                  <article
+                    key={actor.name}
+                    className="actor-card"
+                    style={{ borderTopColor: severityColor(actor.severity) }}
                   >
-                    {generatingFor === actor.name ? (
-                      <span className="spinner-wrap">
-                        <span className="spinner" aria-hidden="true" />
-                        Generating...
+                    <div className="actor-card-header">
+                      <h4 style={{ color: severityColor(actor.severity) }}>{actor.name}</h4>
+                      <CategoryBadge category={actor.category} />
+                      <span className="actor-type-badge">{actor.type}</span>
+                      <span className={`priority-pill priority-${actor.severity}`}>
+                        {actor.severity}
                       </span>
-                    ) : (
-                      'Generate Hunt Hypothesis'
+                    </div>
+                    {actor.firstSeen && (
+                      <div className="lti-meta">Active since: {actor.firstSeen}</div>
                     )}
-                  </button>
-                </article>
-              ))}
-            </div>
+                    <div className="actor-sectors">
+                      {(actor.targetedSectors || []).map((s) => (
+                        <span key={s} className="sector-pill">
+                          {s}
+                        </span>
+                      ))}
+                    </div>
+                    <p className="actor-activity">{actor.recentActivity}</p>
+                    <div className="actor-ttps">
+                      {(actor.mitreTechniques || []).map((t) => (
+                        <span key={t} className="ttp-badge">
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+                    <LogSourceBadges sources={actor.relevantLogSources} />
+                    <GenerateHypothesisButton
+                      actor={actor}
+                      generatingFor={generatingFor}
+                      onGenerate={generateHypothesisForActor}
+                    />
+                  </article>
+                ))}
+              </div>
+              {filteredTrendingActors.length === 0 && (
+                <p className="lti-empty-filter">No threats match this category filter.</p>
+              )}
+            </>
           )}
         </section>
       )}
@@ -389,62 +512,64 @@ export default function LiveThreatIntel({ onGoToSettings }) {
                 <span className="spinner" aria-hidden="true" />
                 Loading historical threat actor database...
               </div>
-              <SkeletonCards count={6} />
+              <SkeletonCards count={12} />
             </>
           )}
 
           {!loadingHistorical && historicalActors.length > 0 && (
-            <div className="actor-grid">
-              {historicalActors.map((actor) => (
-                <article key={actor.name} className="actor-card lti-historical-card">
-                  <div className="actor-card-header">
-                    <h4>{actor.name}</h4>
-                    <span className="actor-type-badge">{actor.type}</span>
-                  </div>
-                  <div className="lti-meta">{formatOrigin(actor.origin)}</div>
-                  {actor.activeYears && (
-                    <div className="lti-meta">Active: {actor.activeYears}</div>
-                  )}
-                  {(actor.notableCampaigns || []).length > 0 && (
-                    <ul className="lti-campaign-list">
-                      {actor.notableCampaigns.map((c) => (
-                        <li key={c}>{c}</li>
-                      ))}
-                    </ul>
-                  )}
-                  <div className="actor-sectors">
-                    {(actor.targetedSectors || []).map((s) => (
-                      <span key={s} className="sector-pill">
-                        {s}
-                      </span>
-                    ))}
-                  </div>
-                  <div className="actor-ttps">
-                    {(actor.mitreTechniques || []).map((t) => (
-                      <span key={t} className="ttp-badge">
-                        {t}
-                      </span>
-                    ))}
-                  </div>
-                  {actor.description && <p className="actor-activity">{actor.description}</p>}
-                  <button
-                    type="button"
-                    className="hyp-generate-btn"
-                    disabled={generatingFor === actor.name}
-                    onClick={() => generateHypothesisForActor(actor)}
-                  >
-                    {generatingFor === actor.name ? (
-                      <span className="spinner-wrap">
-                        <span className="spinner" aria-hidden="true" />
-                        Generating...
-                      </span>
-                    ) : (
-                      'Generate Hunt Hypothesis'
+            <>
+              <CategoryFilterRow
+                actors={historicalActors}
+                activeFilter={historicalCategoryFilter}
+                onFilterChange={setHistoricalCategoryFilter}
+              />
+              <div className="actor-grid">
+                {filteredHistoricalActors.map((actor) => (
+                  <article key={actor.name} className="actor-card lti-historical-card">
+                    <div className="actor-card-header">
+                      <h4>{actor.name}</h4>
+                      <CategoryBadge category={actor.category} />
+                      <span className="actor-type-badge">{actor.type}</span>
+                    </div>
+                    <div className="lti-meta">{formatOrigin(actor.origin)}</div>
+                    {actor.activeYears && (
+                      <div className="lti-meta">Active: {actor.activeYears}</div>
                     )}
-                  </button>
-                </article>
-              ))}
-            </div>
+                    {(actor.notableCampaigns || []).length > 0 && (
+                      <ul className="lti-campaign-list">
+                        {actor.notableCampaigns.map((c) => (
+                          <li key={c}>{c}</li>
+                        ))}
+                      </ul>
+                    )}
+                    <div className="actor-sectors">
+                      {(actor.targetedSectors || []).map((s) => (
+                        <span key={s} className="sector-pill">
+                          {s}
+                        </span>
+                      ))}
+                    </div>
+                    <div className="actor-ttps">
+                      {(actor.mitreTechniques || []).map((t) => (
+                        <span key={t} className="ttp-badge">
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+                    <LogSourceBadges sources={actor.relevantLogSources} />
+                    {actor.description && <p className="actor-activity">{actor.description}</p>}
+                    <GenerateHypothesisButton
+                      actor={actor}
+                      generatingFor={generatingFor}
+                      onGenerate={generateHypothesisForActor}
+                    />
+                  </article>
+                ))}
+              </div>
+              {filteredHistoricalActors.length === 0 && (
+                <p className="lti-empty-filter">No threats match this category filter.</p>
+              )}
+            </>
           )}
         </section>
       )}
