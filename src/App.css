@@ -4334,3 +4334,194 @@ body {
     flex-direction: column;
   }
 }
+
+/* Live Threat Intel tab */
+.lti-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.lti-no-key {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 16px;
+  padding: 48px 24px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+}
+
+.lti-no-key a {
+  color: var(--accent);
+}
+
+.lti-error-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  background: rgba(248, 81, 73, 0.12);
+  border: 1px solid rgba(248, 81, 73, 0.35);
+  border-radius: 8px;
+  color: var(--red);
+  font-size: 0.88rem;
+}
+
+.lti-error-banner button {
+  flex-shrink: 0;
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(248, 81, 73, 0.4);
+  background: transparent;
+  color: var(--red);
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.lti-view-pills {
+  margin-bottom: 4px;
+}
+
+.lti-section-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.lti-section-header h3 {
+  margin: 0;
+}
+
+.lti-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.lti-cache-age {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.lti-skeleton-card {
+  height: 220px;
+  border-radius: 8px;
+  background: linear-gradient(
+    90deg,
+    var(--bg-tertiary) 25%,
+    var(--border) 50%,
+    var(--bg-tertiary) 75%
+  );
+  background-size: 200% 100%;
+  animation: lti-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes lti-pulse {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.lti-meta {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.lti-campaign-list {
+  margin: 0 0 10px;
+  padding-left: 18px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.lti-campaign-list li {
+  margin-bottom: 4px;
+}
+
+.lti-historical-card {
+  border-top: 3px solid var(--border);
+}
+
+.lti-generated-section {
+  margin-top: 8px;
+}
+
+.lti-hyp-card h3 {
+  margin: 8px 0;
+  font-size: 1rem;
+}
+
+.lti-ai-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 10px;
+  background: rgba(63, 185, 80, 0.2);
+  color: var(--green);
+}
+
+.lti-generated-time {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.lti-remove-btn {
+  padding: 4px 8px;
+  border: none;
+  background: transparent;
+  color: var(--red);
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.lti-hyp-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.lti-tactic-chain {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.lti-tag-pill {
+  background: rgba(88, 166, 255, 0.08);
+}
+
+.lti-query-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.lti-kql-block {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  font-size: 0.78rem;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin-bottom: 8px;
+}

@@ -6,7 +6,8 @@
     "api/virustotal.js": { "maxDuration": 10 },
     "api/abuseipdb.js": { "maxDuration": 10 },
     "api/shodan.js": { "maxDuration": 10 },
-    "api/lookup.js": { "maxDuration": 30 }
+    "api/lookup.js": { "maxDuration": 30 },
+    "api/threatactors.js": { "maxDuration": 30 }
   },
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/$1" }

@@ -3,6 +3,7 @@ import MetricCards from './components/MetricCards'
 import MitreHeatmap from './components/MitreHeatmap'
 import KqlLibrary from './components/KqlLibrary'
 import Hypotheses from './components/Hypotheses'
+import LiveThreatIntel from './components/LiveThreatIntel'
 import IocTracker from './components/IocTracker'
 import QueryGenerator from './components/QueryGenerator'
 import GlobalSearch from './components/GlobalSearch'
@@ -37,6 +38,7 @@ const TABS = [
   { id: 'heatmap', label: 'MITRE Heatmap' },
   { id: 'kql', label: 'KQL Library' },
   { id: 'hypotheses', label: 'Hypotheses' },
+  { id: 'live-intel', label: '🌐 Live Intel' },
   { id: 'iocs', label: 'IOC Tracker' },
   { id: 'generator', label: 'KQL Generator' },
   { id: 'settings', label: '⚙ Settings' },
@@ -163,6 +165,8 @@ function AppContent() {
         return (
           <Hypotheses {...highlightProps} onWorkflowChange={handleWorkflowChange} analystName={analystName} />
         )
+      case 'live-intel':
+        return <LiveThreatIntel onGoToSettings={() => setActiveTab('settings')} />
       case 'iocs':
         return <IocTracker />
       case 'generator':
