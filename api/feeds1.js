@@ -13,70 +13,60 @@ export default async function handler(req, res) {
 
   if (feed === 'threatfox') {
     try {
-      const r = await fetch('https://threatfox-api.abuse.ch/api/v1/', {
-        method: 'POST',
-        headers: getAbuseChHeaders(),
-        body: JSON.stringify({ query: 'get_iocs', days: 1 }),
+      const r = await fetch('https://www.spamhaus.org/drop/drop.txt', {
         signal: AbortSignal.timeout(6000),
       })
-      if (r.status === 401) {
-        return res.status(200).json({
-          success: false,
-          error: 'ThreatFox requires free Auth-Key registration at auth.abuse.ch - add ABUSECH_AUTH_KEY env var',
-          iocs: [],
+      if (!r.ok) return res.status(200).json({ success: false, error: `Spamhaus HTTP ${r.status}`, iocs: [] })
+      const text = await r.text()
+      iocs = text.split('\n')
+        .filter((l) => l && !l.startsWith(';') && l.includes('/'))
+        .slice(0, 150)
+        .map((line) => {
+          const ip = line.split(';')[0].trim().split('/')[0]
+          return {
+            indicator: ip,
+            type: 'IP',
+            ttp: 'T1071 C2 / Spam Network',
+            ttpId: 'T1071',
+            source: 'Spamhaus DROP',
+            logSource: 'CommonSecurityLog',
+            confidence: 'High',
+            status: 'active',
+            dateAdded: today(),
+            malwareFamily: 'Known Bad Network',
+            threatType: 'Spamhaus DROP',
+          }
         })
-      }
-      if (!r.ok) return res.status(200).json({ success: false, error: `ThreatFox HTTP ${r.status}`, iocs: [] })
-      const data = await r.json()
-      iocs = (data.data || []).slice(0, 100).map((ioc) => ({
-        indicator: ioc.ioc,
-        type: ioc.ioc_type,
-        ttp: ioc.malware || 'Unknown',
-        ttpId: ioc.tags?.[0] || '',
-        source: 'ThreatFox',
-        logSource: mapLogSource(ioc.ioc_type),
-        confidence: ioc.confidence_level > 70 ? 'High' : ioc.confidence_level > 40 ? 'Medium' : 'Low',
-        status: 'active',
-        dateAdded: ioc.first_seen?.split(' ')[0] || today(),
-        malwareFamily: ioc.malware,
-        threatType: ioc.threat_type,
-      }))
+        .filter((i) => i.indicator?.match(/^\d+\.\d+\.\d+\.\d+$/))
     } catch (e) {
-      return res.status(200).json({ success: false, error: `ThreatFox: ${e.message}`, iocs: [] })
+      return res.status(200).json({ success: false, error: `Spamhaus: ${e.message}`, iocs: [] })
     }
 
   } else if (feed === 'urlhaus') {
     try {
-      const r = await fetch('https://urlhaus-api.abuse.ch/v1/urls/recent/', {
-        method: 'POST',
-        headers: getAbuseChHeaders(),
-        body: JSON.stringify({ query: 'get_urls', limit: 50 }),
+      const r = await fetch('https://lists.blocklist.de/lists/all.txt', {
         signal: AbortSignal.timeout(6000),
       })
-      if (r.status === 401) {
-        return res.status(200).json({
-          success: false,
-          error: 'URLhaus requires free Auth-Key registration at auth.abuse.ch - add ABUSECH_AUTH_KEY env var',
-          iocs: [],
-        })
-      }
-      if (!r.ok) return res.status(200).json({ success: false, error: `URLhaus HTTP ${r.status}`, iocs: [] })
-      const data = await r.json()
-      iocs = (data.urls || []).map((u) => ({
-        indicator: u.url,
-        type: 'URL',
-        ttp: 'T1566.002 Phishing Link',
-        ttpId: 'T1566.002',
-        source: 'URLhaus',
-        logSource: 'ASimDnsActivityLogs',
-        confidence: 'High',
-        status: u.url_status === 'online' ? 'active' : 'watchlist',
-        dateAdded: u.date_added?.split(' ')[0] || today(),
-        malwareFamily: u.tags?.join(', ') || 'Unknown',
-        threatType: 'Malware Distribution',
-      }))
+      if (!r.ok) return res.status(200).json({ success: false, error: `Blocklist.de HTTP ${r.status}`, iocs: [] })
+      const text = await r.text()
+      iocs = text.split('\n')
+        .filter((l) => l && l.match(/^\d+\.\d+\.\d+\.\d+$/))
+        .slice(0, 150)
+        .map((ip) => ({
+          indicator: ip.trim(),
+          type: 'IP',
+          ttp: 'T1110 Brute Force / Attack Source',
+          ttpId: 'T1110',
+          source: 'Blocklist.de',
+          logSource: 'CommonSecurityLog',
+          confidence: 'Medium',
+          status: 'active',
+          dateAdded: today(),
+          malwareFamily: 'Attack Source',
+          threatType: 'Brute Force / Scanning',
+        }))
     } catch (e) {
-      return res.status(200).json({ success: false, error: `URLhaus: ${e.message}`, iocs: [] })
+      return res.status(200).json({ success: false, error: `Blocklist.de: ${e.message}`, iocs: [] })
     }
 
   } else if (feed === 'feodotracker') {
@@ -106,38 +96,29 @@ export default async function handler(req, res) {
 
   } else if (feed === 'malwarebazaar') {
     try {
-      const r = await fetch('https://mb-api.abuse.ch/api/v1/', {
-        method: 'POST',
-        headers: getAbuseChHeaders(),
-        body: JSON.stringify({ query: 'get_recent', selector: '50' }),
+      const r = await fetch('https://check.torproject.org/torbulkexitlist', {
         signal: AbortSignal.timeout(6000),
       })
-      if (r.status === 401) {
-        return res.status(200).json({
-          success: false,
-          error: 'MalwareBazaar requires free Auth-Key registration at auth.abuse.ch - add ABUSECH_AUTH_KEY env var',
-          iocs: [],
-        })
-      }
-      if (!r.ok) return res.status(200).json({ success: false, error: `MalwareBazaar HTTP ${r.status}`, iocs: [] })
-      const data = await r.json()
-      iocs = (data.data || []).map((item) => ({
-        indicator: item.sha256_hash,
-        type: 'SHA256',
-        ttp: 'T1204 Malicious File',
-        ttpId: 'T1204',
-        source: 'MalwareBazaar',
-        logSource: 'MDE',
-        confidence: 'High',
-        status: 'active',
-        dateAdded: item.first_seen?.split(' ')[0] || today(),
-        malwareFamily: item.tags?.join(', ') || item.signature || 'Unknown',
-        threatType: 'Malware Sample',
-        fileName: item.file_name,
-        fileType: item.file_type,
-      }))
+      if (!r.ok) return res.status(200).json({ success: false, error: `TorBulkExit HTTP ${r.status}`, iocs: [] })
+      const text = await r.text()
+      iocs = text.split('\n')
+        .filter((l) => l && l.match(/^\d+\.\d+\.\d+\.\d+$/))
+        .slice(0, 150)
+        .map((ip) => ({
+          indicator: ip.trim(),
+          type: 'IP',
+          ttp: 'T1090.003 Multi-hop Proxy (Tor)',
+          ttpId: 'T1090.003',
+          source: 'Tor Exit Nodes',
+          logSource: 'CommonSecurityLog',
+          confidence: 'Medium',
+          status: 'active',
+          dateAdded: today(),
+          malwareFamily: 'Tor Exit Node',
+          threatType: 'Anonymization Proxy',
+        }))
     } catch (e) {
-      return res.status(200).json({ success: false, error: `MalwareBazaar: ${e.message}`, iocs: [] })
+      return res.status(200).json({ success: false, error: `TorBulkExit: ${e.message}`, iocs: [] })
     }
 
   } else {
@@ -145,22 +126,6 @@ export default async function handler(req, res) {
   }
 
   res.status(200).json({ success: true, count: iocs.length, iocs })
-}
-
-function getAbuseChHeaders() {
-  const headers = { 'Content-Type': 'application/json', Accept: 'application/json' }
-  if (process.env.ABUSECH_AUTH_KEY) {
-    headers['Auth-Key'] = process.env.ABUSECH_AUTH_KEY
-  }
-  return headers
-}
-
-function mapLogSource(type) {
-  if (!type) return 'CommonSecurityLog'
-  if (type.includes('ip')) return 'CommonSecurityLog'
-  if (type.includes('domain') || type.includes('url')) return 'ASimDnsActivityLogs'
-  if (type.includes('sha') || type.includes('md5')) return 'MDE'
-  return 'CommonSecurityLog'
 }
 
 function today() {

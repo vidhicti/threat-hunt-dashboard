@@ -142,10 +142,10 @@ export async function fetchAllIOCs() {
   const config = getConnectorConfig()
 
   const feedCalls = [
-    { name: 'ThreatFox', call: () => fetchFeed('/api/feeds1?feed=threatfox'), enabled: config.threatfox?.enabled !== false },
-    { name: 'URLhaus', call: () => fetchFeed('/api/feeds1?feed=urlhaus'), enabled: config.urlhaus?.enabled !== false },
+    { name: 'Spamhaus DROP', call: () => fetchFeed('/api/feeds1?feed=threatfox'), enabled: config.threatfox?.enabled !== false },
+    { name: 'Blocklist.de', call: () => fetchFeed('/api/feeds1?feed=urlhaus'), enabled: config.urlhaus?.enabled !== false },
     { name: 'FeodoTracker', call: () => fetchFeed('/api/feeds1?feed=feodotracker'), enabled: config.feodotracker?.enabled !== false },
-    { name: 'MalwareBazaar', call: () => fetchFeed('/api/feeds1?feed=malwarebazaar'), enabled: config.malwarebazaar?.enabled !== false },
+    { name: 'Tor Exit Nodes', call: () => fetchFeed('/api/feeds1?feed=malwarebazaar'), enabled: config.malwarebazaar?.enabled !== false },
     { name: 'EmergingThreats', call: () => fetchFeed('/api/feeds2?feed=emergingthreats'), enabled: config.emergingthreats?.enabled !== false },
     { name: 'CINS Army', call: () => fetchFeed('/api/feeds2?feed=cinsarmy'), enabled: config.cinsarmy?.enabled !== false },
     { name: 'SSL Blacklist', call: () => fetchFeed('/api/feeds2?feed=sslblacklist'), enabled: config.sslblacklist?.enabled !== false },
