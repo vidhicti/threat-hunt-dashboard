@@ -217,7 +217,12 @@ export default function Settings({ theme = 'dark', setTheme }) {
 
       if (feed.usedFor === 'enrichment') {
         if (feed.id === 'abuseipdb') {
-          const data = await postToApi('abuseipdb', { ip: '1.1.1.1', apiKey })
+          const res = await fetch(`${API_BASE}/api/abuseipdb`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ip: '1.1.1.1', apiKey }),
+          })
+          const data = await res.json()
           if (!data.success) throw new Error(data.error || 'Connection failed')
           result = {
             ok: true,
@@ -225,7 +230,12 @@ export default function Settings({ theme = 'dark', setTheme }) {
             iocCount: `Abuse score ${data.result.abuseScore}/100 (${data.result.totalReports || 0} reports)`,
           }
         } else if (feed.id === 'virustotal') {
-          const data = await postToApi('virustotal', { indicator: '1.1.1.1', type: 'IP', apiKey })
+          const res = await fetch(`${API_BASE}/api/virustotal`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ indicator: '1.1.1.1', type: 'IP', apiKey }),
+          })
+          const data = await res.json()
           if (!data.success) throw new Error(data.error || 'Connection failed')
           result = {
             ok: true,
@@ -233,7 +243,12 @@ export default function Settings({ theme = 'dark', setTheme }) {
             iocCount: `VT score ${data.result.vtScore} (${data.result.vtMalicious} malicious)`,
           }
         } else if (feed.id === 'shodan') {
-          const data = await postToApi('shodan', { ip: '8.8.8.8', apiKey })
+          const res = await fetch(`${API_BASE}/api/shodan`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ip: '8.8.8.8', apiKey }),
+          })
+          const data = await res.json()
           if (!data.success) throw new Error(data.error || 'Connection failed')
           const portCount = data.result.openPorts?.length || 0
           const vulnCount = data.result.vulns?.length || 0
