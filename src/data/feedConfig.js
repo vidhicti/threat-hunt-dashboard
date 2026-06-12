@@ -69,13 +69,13 @@ export const FEED_DEFINITIONS = [
   },
   {
     id: 'sslblacklist',
-    name: 'SSL Blacklist',
-    provider: 'Abuse.ch',
-    description: 'SSL certificate blacklist for C2 detection',
+    name: 'FireHOL Level1',
+    provider: 'FireHOL',
+    description: 'High-confidence malicious IP blocklist aggregated from multiple sources',
     types: ['IP'],
     requiresKey: false,
     tier: 'free',
-    iocCount: '200+',
+    iocCount: '150+',
     reliability: 'high',
   },
   {

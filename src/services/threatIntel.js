@@ -148,7 +148,7 @@ export async function fetchAllIOCs() {
     { name: 'Tor Exit Nodes', call: () => fetchFeed('/api/feeds1?feed=malwarebazaar'), enabled: config.malwarebazaar?.enabled !== false },
     { name: 'EmergingThreats', call: () => fetchFeed('/api/feeds2?feed=emergingthreats'), enabled: config.emergingthreats?.enabled !== false },
     { name: 'CINS Army', call: () => fetchFeed('/api/feeds2?feed=cinsarmy'), enabled: config.cinsarmy?.enabled !== false },
-    { name: 'SSL Blacklist', call: () => fetchFeed('/api/feeds2?feed=sslblacklist'), enabled: config.sslblacklist?.enabled !== false },
+    { name: 'FireHOL Level1', call: () => fetchFeed('/api/feeds2?feed=sslblacklist'), enabled: config.sslblacklist?.enabled !== false },
     {
       name: 'AlienVault OTX',
       call: () => {
