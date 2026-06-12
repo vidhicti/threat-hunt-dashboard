@@ -15,10 +15,17 @@ export default async function handler(req, res) {
     try {
       const r = await fetch('https://threatfox-api.abuse.ch/api/v1/', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAbuseChHeaders(),
         body: JSON.stringify({ query: 'get_iocs', days: 1 }),
         signal: AbortSignal.timeout(6000),
       })
+      if (r.status === 401) {
+        return res.status(200).json({
+          success: false,
+          error: 'ThreatFox requires free Auth-Key registration at auth.abuse.ch - add ABUSECH_AUTH_KEY env var',
+          iocs: [],
+        })
+      }
       if (!r.ok) return res.status(200).json({ success: false, error: `ThreatFox HTTP ${r.status}`, iocs: [] })
       const data = await r.json()
       iocs = (data.data || []).slice(0, 100).map((ioc) => ({
@@ -42,10 +49,17 @@ export default async function handler(req, res) {
     try {
       const r = await fetch('https://urlhaus-api.abuse.ch/v1/urls/recent/', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAbuseChHeaders(),
         body: JSON.stringify({ query: 'get_urls', limit: 50 }),
         signal: AbortSignal.timeout(6000),
       })
+      if (r.status === 401) {
+        return res.status(200).json({
+          success: false,
+          error: 'URLhaus requires free Auth-Key registration at auth.abuse.ch - add ABUSECH_AUTH_KEY env var',
+          iocs: [],
+        })
+      }
       if (!r.ok) return res.status(200).json({ success: false, error: `URLhaus HTTP ${r.status}`, iocs: [] })
       const data = await r.json()
       iocs = (data.urls || []).map((u) => ({
@@ -94,10 +108,17 @@ export default async function handler(req, res) {
     try {
       const r = await fetch('https://mb-api.abuse.ch/api/v1/', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAbuseChHeaders(),
         body: JSON.stringify({ query: 'get_recent', selector: '50' }),
         signal: AbortSignal.timeout(6000),
       })
+      if (r.status === 401) {
+        return res.status(200).json({
+          success: false,
+          error: 'MalwareBazaar requires free Auth-Key registration at auth.abuse.ch - add ABUSECH_AUTH_KEY env var',
+          iocs: [],
+        })
+      }
       if (!r.ok) return res.status(200).json({ success: false, error: `MalwareBazaar HTTP ${r.status}`, iocs: [] })
       const data = await r.json()
       iocs = (data.data || []).map((item) => ({
@@ -124,6 +145,14 @@ export default async function handler(req, res) {
   }
 
   res.status(200).json({ success: true, count: iocs.length, iocs })
+}
+
+function getAbuseChHeaders() {
+  const headers = { 'Content-Type': 'application/json', Accept: 'application/json' }
+  if (process.env.ABUSECH_AUTH_KEY) {
+    headers['Auth-Key'] = process.env.ABUSECH_AUTH_KEY
+  }
+  return headers
 }
 
 function mapLogSource(type) {
