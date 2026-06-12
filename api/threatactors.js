@@ -130,6 +130,82 @@ Return ONE hypothesis as JSON:
   "kqlQueries": [{"title":"","logSource":"","severity":"high","mitreTechnique":"","kql":""}]
 }
 Return ONLY valid JSON, no markdown.`
+    } else if (mode === 'vulnerabilities') {
+      prompt = `List 10 significant recently disclosed or actively exploited 
+vulnerabilities (CVEs) that SOC teams should be hunting for, covering:
+
+1. Actively exploited zero-days
+2. Critical CVEs in common enterprise software (Windows, VMware, Citrix, 
+   Fortinet, Palo Alto, Microsoft Exchange, etc.)
+3. Vulnerabilities with public PoC/exploit code
+4. CVEs being used by ransomware groups for initial access
+
+For each provide:
+- cveId (e.g. "CVE-2024-XXXXX")
+- name (short descriptive name)
+- product (affected product/vendor)
+- severity (critical/high/medium) 
+- cvssScore (number 0-10)
+- description (1-2 sentences)
+- exploitStatus ("Actively Exploited"/"PoC Available"/"Patch Available")
+- affectedVersions (string)
+- mitreTechniques (array of 2-4 relevant TTPs like T1190, T1133)
+- huntingGuidance (1-2 sentences on what to look for in logs)
+- relevantLogSources (array from: "MDE","SecurityEvents","CommonSecurityLog-Fortinet","CommonSecurityLog-PaloAlto","CommonSecurityLog-Sophos","CommonSecurityLog-TrendMicro","ASimDnsActivityLogs","OfficeActivity")
+- disclosedPeriod (approximate, e.g. "Late 2024" or "Early 2025")
+
+Respond ONLY with valid JSON array, no markdown.`
+    } else if (mode === 'attackcampaigns') {
+      prompt = `List 8 significant recent attack campaigns or incidents 
+(last 6-12 months) that SOC teams should know about, covering:
+
+1. Major breaches with public attribution
+2. Notable ransomware attacks on specific sectors
+3. Supply chain compromises
+4. Significant phishing/BEC campaigns
+5. Critical infrastructure attacks
+
+For each provide:
+- name (campaign/incident name)
+- category ("Data Breach"/"Ransomware Attack"/"Supply Chain"/"Phishing Campaign"/"Critical Infrastructure"/"Espionage")
+- attributedTo (threat actor name if known, else "Unknown")
+- targetSector (industry affected)
+- summary (2-3 sentences on what happened)
+- initialAccessVector (how they got in - e.g. "Phishing email with malicious attachment")
+- mitreTechniques (array of 4-6 TTPs used in this campaign)
+- relevantLogSources (array same options as above)
+- timeframe (approximate, e.g. "Q3 2025")
+- severity (critical/high/medium)
+
+Respond ONLY with valid JSON array, no markdown.`
+    } else if (mode === 'cvehypothesis' && actorName) {
+      prompt = `Generate a threat hunting hypothesis for detecting exploitation 
+attempts of ${actorName} in a Microsoft Sentinel environment.
+
+Available log sources:
+- Fortigate: CommonSecurityLog (DeviceVendor=="Fortinet")
+- Palo Alto: CommonSecurityLog (DeviceVendor=="Palo Alto Networks")
+- Sophos: CommonSecurityLog (DeviceVendor=="Sophos")
+- AD: SecurityEvent
+- MDE: DeviceProcessEvents, DeviceNetworkEvents, DeviceFileEvents
+- DNS: ASimDnsActivityLogs
+- O365: OfficeActivity
+- Trend Micro: CommonSecurityLog (DeviceVendor=="Trend Micro")
+
+Return ONE hypothesis as JSON:
+{
+  "id": "CVE-${Date.now()}",
+  "priority": "critical",
+  "title": "title mentioning the CVE",
+  "tacticChain": "Initial Access -> ...",
+  "logSources": ["array"],
+  "description": "description including exploitation indicators",
+  "tags": ["cve","exploit-detection"],
+  "threatActor": "${actorName}",
+  "generatedAt": "${new Date().toISOString()}",
+  "kqlQueries": [{"title":"","logSource":"","severity":"critical","mitreTechnique":"","kql":""}]
+}
+Return ONLY valid JSON, no markdown.`
     } else {
       return res.status(200).json({ success: false, error: 'Invalid mode or missing parameters' })
     }

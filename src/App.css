@@ -4387,6 +4387,7 @@ body {
 
 .lti-view-pills {
   margin-bottom: 4px;
+  flex-wrap: wrap;
 }
 
 .lti-section-header {
@@ -4659,4 +4660,187 @@ body {
   font-size: 0.88rem;
   color: var(--text-muted);
   text-align: center;
+}
+
+.lti-cve-id {
+  font-family: monospace;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--accent);
+  flex: 1;
+  min-width: 140px;
+}
+
+.lti-cve-name {
+  margin: 0 0 10px;
+  font-size: 0.95rem;
+  color: var(--text);
+}
+
+.lti-cvss-gauge {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.lti-cvss-bar-track {
+  flex: 1;
+  height: 8px;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.lti-cvss-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.lti-cvss-score {
+  font-size: 0.82rem;
+  font-weight: 700;
+  font-family: monospace;
+  min-width: 32px;
+}
+
+.lti-cvss-red,
+.lti-cvss-bar-fill.lti-cvss-red {
+  background: #f85149;
+  color: #f85149;
+}
+
+.lti-cvss-amber,
+.lti-cvss-bar-fill.lti-cvss-amber {
+  background: #d29922;
+  color: #d29922;
+}
+
+.lti-cvss-yellow,
+.lti-cvss-bar-fill.lti-cvss-yellow {
+  background: #e3b341;
+  color: #e3b341;
+}
+
+.lti-cvss-gray,
+.lti-cvss-bar-fill.lti-cvss-gray {
+  background: #8b949e;
+  color: #8b949e;
+}
+
+.lti-exploit-badge {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 10px;
+  margin-bottom: 10px;
+}
+
+.lti-exploit-active {
+  background: rgba(248, 81, 73, 0.15);
+  color: #f85149;
+  border: 1px solid rgba(248, 81, 73, 0.35);
+}
+
+.lti-exploit-poc {
+  background: rgba(210, 153, 34, 0.15);
+  color: #d29922;
+  border: 1px solid rgba(210, 153, 34, 0.35);
+}
+
+.lti-exploit-patch {
+  background: rgba(63, 185, 80, 0.15);
+  color: #3fb950;
+  border: 1px solid rgba(63, 185, 80, 0.35);
+}
+
+.lti-hunting-guidance {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  background: rgba(88, 166, 255, 0.06);
+  border-left: 3px solid var(--accent);
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  border-radius: 0 6px 6px 0;
+}
+
+.lti-hunting-guidance strong {
+  color: var(--accent);
+}
+
+.lti-initial-access {
+  font-size: 0.85rem;
+  color: var(--text);
+  background: rgba(210, 153, 34, 0.08);
+  border: 1px solid rgba(210, 153, 34, 0.25);
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+
+.lti-initial-access strong {
+  color: var(--amber);
+}
+
+.lti-campaign-cat-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+
+.lti-camp-cat-data-breach {
+  background: rgba(248, 81, 73, 0.15);
+  color: #f85149;
+  border: 1px solid rgba(248, 81, 73, 0.3);
+}
+
+.lti-camp-cat-ransomware-attack {
+  background: rgba(180, 40, 40, 0.18);
+  color: #c93c3c;
+  border: 1px solid rgba(180, 40, 40, 0.35);
+}
+
+.lti-camp-cat-supply-chain {
+  background: rgba(163, 113, 247, 0.15);
+  color: #a371f7;
+  border: 1px solid rgba(163, 113, 247, 0.3);
+}
+
+.lti-camp-cat-phishing-campaign {
+  background: rgba(88, 166, 255, 0.15);
+  color: #58a6ff;
+  border: 1px solid rgba(88, 166, 255, 0.3);
+}
+
+.lti-camp-cat-critical-infra {
+  background: rgba(255, 140, 50, 0.15);
+  color: #ff8c32;
+  border: 1px solid rgba(255, 140, 50, 0.3);
+}
+
+.lti-camp-cat-espionage {
+  background: rgba(45, 212, 191, 0.15);
+  color: #2dd4bf;
+  border: 1px solid rgba(45, 212, 191, 0.3);
+}
+
+.lti-camp-cat-default {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+
+.lti-cve-linked-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 10px;
+  background: rgba(163, 113, 247, 0.2);
+  color: #a371f7;
+  border: 1px solid rgba(163, 113, 247, 0.35);
 }

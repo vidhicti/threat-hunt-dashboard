@@ -32,6 +32,29 @@ const CATEGORY_SLUG = {
   'Cloud/SaaS Threat': 'cloud-saas-threat',
 }
 
+const EXPLOIT_FILTERS = ['Actively Exploited', 'PoC Available', 'Patch Available']
+
+const CAMPAIGN_CATEGORIES = [
+  'Data Breach',
+  'Ransomware Attack',
+  'Supply Chain',
+  'Phishing Campaign',
+  'Critical Infrastructure',
+  'Espionage',
+]
+
+const CAMPAIGN_CATEGORY_SLUG = {
+  'Data Breach': 'data-breach',
+  'Ransomware Attack': 'ransomware-attack',
+  'Supply Chain': 'supply-chain',
+  'Phishing Campaign': 'phishing-campaign',
+  'Critical Infrastructure': 'critical-infra',
+  Espionage: 'espionage',
+}
+
+const SEVERITY_ORDER = { critical: 0, high: 1, medium: 2 }
+const EXPLOIT_ORDER = { 'Actively Exploited': 0, 'PoC Available': 1, 'Patch Available': 2 }
+
 const QUICK_CHIPS = [
   'Ransomware pre-staging activity',
   'Credential dumping and lateral movement',
@@ -103,9 +126,37 @@ function filterByCategory(actors, categoryFilter) {
   return actors.filter((a) => a.category === categoryFilter)
 }
 
-function categoriesInData(actors) {
+function categoriesInData(actors, categoryList) {
   const present = new Set((actors || []).map((a) => a.category).filter(Boolean))
-  return THREAT_CATEGORIES.filter((c) => present.has(c))
+  return categoryList.filter((c) => present.has(c))
+}
+
+function sortVulnerabilities(vulns) {
+  return [...vulns].sort((a, b) => {
+    const sev =
+      (SEVERITY_ORDER[a.severity] ?? 9) - (SEVERITY_ORDER[b.severity] ?? 9)
+    if (sev !== 0) return sev
+    return (
+      (EXPLOIT_ORDER[a.exploitStatus] ?? 9) - (EXPLOIT_ORDER[b.exploitStatus] ?? 9)
+    )
+  })
+}
+
+function filterByExploitStatus(vulns, filter) {
+  if (!filter || filter === 'All') return vulns
+  return vulns.filter((v) => v.exploitStatus === filter)
+}
+
+function cvssBarClass(score) {
+  const n = Number(score)
+  if (n >= 9) return 'lti-cvss-red'
+  if (n >= 7) return 'lti-cvss-amber'
+  if (n >= 4) return 'lti-cvss-yellow'
+  return 'lti-cvss-gray'
+}
+
+function isCveLinkedHypothesis(hyp) {
+  return hyp.tags?.includes('cve') || hyp.threatActor?.startsWith('CVE-')
 }
 
 function CategoryBadge({ category }) {
@@ -128,9 +179,10 @@ function LogSourceBadges({ sources }) {
   )
 }
 
-function CategoryFilterRow({ actors, activeFilter, onFilterChange }) {
-  const available = categoriesInData(actors)
+function CategoryFilterRow({ actors, activeFilter, onFilterChange, categoryList = THREAT_CATEGORIES }) {
+  const available = categoriesInData(actors, categoryList)
   if (available.length === 0) return null
+  const slugMap = categoryList === CAMPAIGN_CATEGORIES ? CAMPAIGN_CATEGORY_SLUG : CATEGORY_SLUG
   return (
     <div className="lti-category-filters">
       <button
@@ -144,7 +196,7 @@ function CategoryFilterRow({ actors, activeFilter, onFilterChange }) {
         <button
           key={cat}
           type="button"
-          className={`lti-cat-filter-pill lti-cat-filter-${CATEGORY_SLUG[cat] || 'default'} ${activeFilter === cat ? 'active' : ''}`}
+          className={`lti-cat-filter-pill lti-cat-filter-${slugMap[cat] || 'default'} ${activeFilter === cat ? 'active' : ''}`}
           onClick={() => onFilterChange(cat)}
         >
           {cat}
@@ -154,21 +206,83 @@ function CategoryFilterRow({ actors, activeFilter, onFilterChange }) {
   )
 }
 
-function GenerateHypothesisButton({ actor, generatingFor, onGenerate }) {
+function ExploitFilterRow({ activeFilter, onFilterChange }) {
+  return (
+    <div className="lti-category-filters">
+      <button
+        type="button"
+        className={`lti-cat-filter-pill ${activeFilter === 'All' ? 'active' : ''}`}
+        onClick={() => onFilterChange('All')}
+      >
+        All
+      </button>
+      {EXPLOIT_FILTERS.map((status) => (
+        <button
+          key={status}
+          type="button"
+          className={`lti-cat-filter-pill ${activeFilter === status ? 'active' : ''}`}
+          onClick={() => onFilterChange(status)}
+        >
+          {status}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function CampaignCategoryBadge({ category }) {
+  if (!category) return null
+  const slug = CAMPAIGN_CATEGORY_SLUG[category] || 'default'
+  return <span className={`lti-campaign-cat-badge lti-camp-cat-${slug}`}>{category}</span>
+}
+
+function ExploitStatusBadge({ status }) {
+  if (!status) return null
+  const cls =
+    status === 'Actively Exploited'
+      ? 'lti-exploit-active'
+      : status === 'PoC Available'
+        ? 'lti-exploit-poc'
+        : 'lti-exploit-patch'
+  const icon = status === 'Actively Exploited' ? '🔴' : status === 'PoC Available' ? '🟡' : '🟢'
+  return (
+    <span className={`lti-exploit-badge ${cls}`}>
+      {icon} {status}
+    </span>
+  )
+}
+
+function CvssGauge({ score }) {
+  const n = Math.min(10, Math.max(0, Number(score) || 0))
+  const pct = (n / 10) * 100
+  return (
+    <div className="lti-cvss-gauge">
+      <div className="lti-cvss-bar-track">
+        <div
+          className={`lti-cvss-bar-fill ${cvssBarClass(n)}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <span className={`lti-cvss-score ${cvssBarClass(n)}`}>{n.toFixed(1)}</span>
+    </div>
+  )
+}
+
+function GenerateHypothesisButton({ itemKey, generatingFor, onGenerate, data, label = 'Generate Hunt Hypothesis' }) {
   return (
     <button
       type="button"
       className="hyp-generate-btn"
-      disabled={generatingFor === actor.name}
-      onClick={() => onGenerate(actor)}
+      disabled={generatingFor === itemKey}
+      onClick={() => onGenerate(data)}
     >
-      {generatingFor === actor.name ? (
+      {generatingFor === itemKey ? (
         <span className="spinner-wrap">
           <span className="spinner" aria-hidden="true" />
           Generating...
         </span>
       ) : (
-        'Generate Hunt Hypothesis'
+        label
       )}
     </button>
   )
@@ -203,6 +317,14 @@ export default function LiveThreatIntel({ onGoToSettings }) {
   const [historicalCacheTime, setHistoricalCacheTime] = useState(null)
   const [trendsCategoryFilter, setTrendsCategoryFilter] = useState('All')
   const [historicalCategoryFilter, setHistoricalCategoryFilter] = useState('All')
+  const [vulnerabilities, setVulnerabilities] = useState([])
+  const [attackCampaigns, setAttackCampaigns] = useState([])
+  const [loadingVulns, setLoadingVulns] = useState(false)
+  const [loadingCampaigns, setLoadingCampaigns] = useState(false)
+  const [vulnsCacheTime, setVulnsCacheTime] = useState(null)
+  const [campaignsCacheTime, setCampaignsCacheTime] = useState(null)
+  const [vulnsExploitFilter, setVulnsExploitFilter] = useState('All')
+  const [campaignsCategoryFilter, setCampaignsCategoryFilter] = useState('All')
 
   const filteredTrendingActors = useMemo(
     () => filterByCategory(trendingActors, trendsCategoryFilter),
@@ -214,6 +336,16 @@ export default function LiveThreatIntel({ onGoToSettings }) {
     [historicalActors, historicalCategoryFilter]
   )
 
+  const sortedFilteredVulns = useMemo(() => {
+    const filtered = filterByExploitStatus(vulnerabilities, vulnsExploitFilter)
+    return sortVulnerabilities(filtered)
+  }, [vulnerabilities, vulnsExploitFilter])
+
+  const filteredCampaigns = useMemo(
+    () => filterByCategory(attackCampaigns, campaignsCategoryFilter),
+    [attackCampaigns, campaignsCategoryFilter]
+  )
+
   useEffect(() => {
     try {
       const saved = localStorage.getItem('liveHypotheses')
@@ -223,6 +355,8 @@ export default function LiveThreatIntel({ onGoToSettings }) {
     }
     loadCache('trendingActorsCache', setTrendingActors, setTrendsCacheTime)
     loadCache('historicalActorsCache', setHistoricalActors, setHistoricalCacheTime)
+    loadCache('vulnsCache', setVulnerabilities, setVulnsCacheTime)
+    loadCache('campaignsCache', setAttackCampaigns, setCampaignsCacheTime)
   }, [])
 
   async function fetchTrends() {
@@ -271,6 +405,52 @@ export default function LiveThreatIntel({ onGoToSettings }) {
     }
   }
 
+  async function fetchVulnerabilities() {
+    setLoadingVulns(true)
+    setError(null)
+    try {
+      const r = await fetch(`${API_BASE}/api/threatactors`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ groqApiKey: groqKey, mode: 'vulnerabilities' }),
+      })
+      const data = await r.json()
+      if (!data.success) throw new Error(data.error)
+      setVulnerabilities(data.data)
+      setVulnsExploitFilter('All')
+      const now = Date.now()
+      setVulnsCacheTime(now)
+      localStorage.setItem('vulnsCache', JSON.stringify({ data: data.data, time: now }))
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setLoadingVulns(false)
+    }
+  }
+
+  async function fetchAttackCampaigns() {
+    setLoadingCampaigns(true)
+    setError(null)
+    try {
+      const r = await fetch(`${API_BASE}/api/threatactors`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ groqApiKey: groqKey, mode: 'attackcampaigns' }),
+      })
+      const data = await r.json()
+      if (!data.success) throw new Error(data.error)
+      setAttackCampaigns(data.data)
+      setCampaignsCategoryFilter('All')
+      const now = Date.now()
+      setCampaignsCacheTime(now)
+      localStorage.setItem('campaignsCache', JSON.stringify({ data: data.data, time: now }))
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setLoadingCampaigns(false)
+    }
+  }
+
   async function generateHypothesisForActor(actor) {
     setGeneratingFor(actor.name)
     setError(null)
@@ -283,6 +463,57 @@ export default function LiveThreatIntel({ onGoToSettings }) {
           mode: 'hypothesis',
           actorName: actor.name,
           logSourceHint: actor.relevantLogSources,
+        }),
+      })
+      const data = await r.json()
+      if (!data.success) throw new Error(data.error)
+      const updated = [data.data, ...generatedHypotheses]
+      setGeneratedHypotheses(updated)
+      localStorage.setItem('liveHypotheses', JSON.stringify(updated))
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setGeneratingFor(null)
+    }
+  }
+
+  async function generateCveHypothesis(cve) {
+    setGeneratingFor(cve.cveId)
+    setError(null)
+    try {
+      const r = await fetch(`${API_BASE}/api/threatactors`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          groqApiKey: groqKey,
+          mode: 'cvehypothesis',
+          actorName: cve.cveId,
+        }),
+      })
+      const data = await r.json()
+      if (!data.success) throw new Error(data.error)
+      const updated = [data.data, ...generatedHypotheses]
+      setGeneratedHypotheses(updated)
+      localStorage.setItem('liveHypotheses', JSON.stringify(updated))
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setGeneratingFor(null)
+    }
+  }
+
+  async function generateHypothesisForCampaign(campaign) {
+    setGeneratingFor(campaign.name)
+    setError(null)
+    try {
+      const r = await fetch(`${API_BASE}/api/threatactors`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          groqApiKey: groqKey,
+          mode: 'hypothesis',
+          actorName: campaign.name,
+          logSourceHint: campaign.relevantLogSources,
         }),
       })
       const data = await r.json()
@@ -398,6 +629,20 @@ export default function LiveThreatIntel({ onGoToSettings }) {
         </button>
         <button
           type="button"
+          className={`hyp-tab-pill ${activeView === 'vulnerabilities' ? 'active' : ''}`}
+          onClick={() => setActiveView('vulnerabilities')}
+        >
+          🔓 Vulnerabilities
+        </button>
+        <button
+          type="button"
+          className={`hyp-tab-pill ${activeView === 'campaigns' ? 'active' : ''}`}
+          onClick={() => setActiveView('campaigns')}
+        >
+          ⚡ Attack Campaigns
+        </button>
+        <button
+          type="button"
           className={`hyp-tab-pill ${activeView === 'custom' ? 'active' : ''}`}
           onClick={() => setActiveView('custom')}
         >
@@ -474,9 +719,10 @@ export default function LiveThreatIntel({ onGoToSettings }) {
                     </div>
                     <LogSourceBadges sources={actor.relevantLogSources} />
                     <GenerateHypothesisButton
-                      actor={actor}
+                      itemKey={actor.name}
                       generatingFor={generatingFor}
                       onGenerate={generateHypothesisForActor}
+                      data={actor}
                     />
                   </article>
                 ))}
@@ -559,15 +805,191 @@ export default function LiveThreatIntel({ onGoToSettings }) {
                     <LogSourceBadges sources={actor.relevantLogSources} />
                     {actor.description && <p className="actor-activity">{actor.description}</p>}
                     <GenerateHypothesisButton
-                      actor={actor}
+                      itemKey={actor.name}
                       generatingFor={generatingFor}
                       onGenerate={generateHypothesisForActor}
+                      data={actor}
                     />
                   </article>
                 ))}
               </div>
               {filteredHistoricalActors.length === 0 && (
                 <p className="lti-empty-filter">No threats match this category filter.</p>
+              )}
+            </>
+          )}
+        </section>
+      )}
+
+      {activeView === 'vulnerabilities' && (
+        <section className="hyp-landscape-card">
+          <div className="lti-section-header">
+            <h3>Active Vulnerability Intelligence</h3>
+            <div className="lti-header-actions">
+              <span className="lti-cache-age">{formatCacheAge(vulnsCacheTime)}</span>
+              <button
+                type="button"
+                className="hyp-fetch-btn"
+                onClick={fetchVulnerabilities}
+                disabled={loadingVulns}
+              >
+                Fetch Latest CVEs
+              </button>
+            </div>
+          </div>
+
+          {loadingVulns && (
+            <>
+              <div className="hyp-loading-row">
+                <span className="spinner" aria-hidden="true" />
+                Fetching latest vulnerability intelligence...
+              </div>
+              <SkeletonCards count={10} />
+            </>
+          )}
+
+          {!loadingVulns && vulnerabilities.length > 0 && (
+            <>
+              <ExploitFilterRow
+                activeFilter={vulnsExploitFilter}
+                onFilterChange={setVulnsExploitFilter}
+              />
+              <div className="actor-grid">
+                {sortedFilteredVulns.map((cve) => (
+                  <article
+                    key={cve.cveId}
+                    className="actor-card lti-cve-card"
+                    style={{ borderTopColor: severityColor(cve.severity) }}
+                  >
+                    <div className="actor-card-header">
+                      <span className="lti-cve-id">{cve.cveId}</span>
+                      <span className={`priority-pill priority-${cve.severity}`}>
+                        {cve.severity}
+                      </span>
+                    </div>
+                    {cve.name && <h4 className="lti-cve-name">{cve.name}</h4>}
+                    <CvssGauge score={cve.cvssScore} />
+                    {cve.product && <div className="lti-meta">Product: {cve.product}</div>}
+                    <ExploitStatusBadge status={cve.exploitStatus} />
+                    {cve.description && <p className="actor-activity">{cve.description}</p>}
+                    {cve.affectedVersions && (
+                      <div className="lti-meta">Affected: {cve.affectedVersions}</div>
+                    )}
+                    {cve.huntingGuidance && (
+                      <div className="lti-hunting-guidance">
+                        <strong>Hunting Guidance:</strong> {cve.huntingGuidance}
+                      </div>
+                    )}
+                    <div className="actor-ttps">
+                      {(cve.mitreTechniques || []).map((t) => (
+                        <span key={t} className="ttp-badge">
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+                    <LogSourceBadges sources={cve.relevantLogSources} />
+                    {cve.disclosedPeriod && (
+                      <div className="lti-meta">Disclosed: {cve.disclosedPeriod}</div>
+                    )}
+                    <GenerateHypothesisButton
+                      itemKey={cve.cveId}
+                      generatingFor={generatingFor}
+                      onGenerate={generateCveHypothesis}
+                      data={cve}
+                      label="Generate Detection Hypothesis"
+                    />
+                  </article>
+                ))}
+              </div>
+              {sortedFilteredVulns.length === 0 && (
+                <p className="lti-empty-filter">No CVEs match this exploit status filter.</p>
+              )}
+            </>
+          )}
+        </section>
+      )}
+
+      {activeView === 'campaigns' && (
+        <section className="hyp-landscape-card">
+          <div className="lti-section-header">
+            <h3>Recent Attack Campaigns</h3>
+            <div className="lti-header-actions">
+              <span className="lti-cache-age">{formatCacheAge(campaignsCacheTime)}</span>
+              <button
+                type="button"
+                className="hyp-fetch-btn"
+                onClick={fetchAttackCampaigns}
+                disabled={loadingCampaigns}
+              >
+                Fetch Latest
+              </button>
+            </div>
+          </div>
+
+          {loadingCampaigns && (
+            <>
+              <div className="hyp-loading-row">
+                <span className="spinner" aria-hidden="true" />
+                Loading recent attack campaigns...
+              </div>
+              <SkeletonCards count={8} />
+            </>
+          )}
+
+          {!loadingCampaigns && attackCampaigns.length > 0 && (
+            <>
+              <CategoryFilterRow
+                actors={attackCampaigns}
+                activeFilter={campaignsCategoryFilter}
+                onFilterChange={setCampaignsCategoryFilter}
+                categoryList={CAMPAIGN_CATEGORIES}
+              />
+              <div className="actor-grid">
+                {filteredCampaigns.map((campaign) => (
+                  <article
+                    key={campaign.name}
+                    className="actor-card lti-campaign-card"
+                    style={{ borderTopColor: severityColor(campaign.severity) }}
+                  >
+                    <div className="actor-card-header">
+                      <h4 style={{ color: severityColor(campaign.severity) }}>{campaign.name}</h4>
+                      <CampaignCategoryBadge category={campaign.category} />
+                      <span className={`priority-pill priority-${campaign.severity}`}>
+                        {campaign.severity}
+                      </span>
+                    </div>
+                    <div className="lti-meta">
+                      Attributed to: {campaign.attributedTo || 'Unknown'}
+                    </div>
+                    <div className="lti-meta">
+                      Target sector: {campaign.targetSector || '—'}
+                      {campaign.timeframe && ` · Timeframe: ${campaign.timeframe}`}
+                    </div>
+                    {campaign.summary && <p className="actor-activity">{campaign.summary}</p>}
+                    {campaign.initialAccessVector && (
+                      <div className="lti-initial-access">
+                        <strong>Initial Access:</strong> {campaign.initialAccessVector}
+                      </div>
+                    )}
+                    <div className="actor-ttps">
+                      {(campaign.mitreTechniques || []).map((t) => (
+                        <span key={t} className="ttp-badge">
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+                    <LogSourceBadges sources={campaign.relevantLogSources} />
+                    <GenerateHypothesisButton
+                      itemKey={campaign.name}
+                      generatingFor={generatingFor}
+                      onGenerate={generateHypothesisForCampaign}
+                      data={campaign}
+                    />
+                  </article>
+                ))}
+              </div>
+              {filteredCampaigns.length === 0 && (
+                <p className="lti-empty-filter">No campaigns match this category filter.</p>
               )}
             </>
           )}
@@ -644,6 +1066,9 @@ export default function LiveThreatIntel({ onGoToSettings }) {
                   <div className="hypothesis-header">
                     <div className="hypothesis-header-left">
                       <span className="lti-ai-badge">AI Generated</span>
+                      {isCveLinkedHypothesis(hyp) && (
+                        <span className="lti-cve-linked-badge">CVE-LINKED</span>
+                      )}
                       {hyp.threatActor && (
                         <span className="actor-tag">For: {hyp.threatActor}</span>
                       )}
