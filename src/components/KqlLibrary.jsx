@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import queries from '../data/queries.json'
 import { validateKQL } from '../services/kqlValidator'
 
@@ -100,6 +100,34 @@ function ValidationPanel({ result }) {
   )
 }
 
+function KqlCodeBlock({ kql }) {
+  const blockRef = useRef(null)
+  const [showScrollHint, setShowScrollHint] = useState(false)
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768)
+
+  useEffect(() => {
+    const check = () => {
+      setIsMobile(window.innerWidth < 768)
+      const el = blockRef.current
+      if (el) setShowScrollHint(el.scrollWidth > el.clientWidth)
+    }
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
+  }, [kql])
+
+  return (
+    <>
+      <pre className="kql-block" ref={blockRef}>
+        <code className="kql-code">{kql}</code>
+      </pre>
+      {isMobile && showScrollHint && (
+        <p className="kql-scroll-hint">← Scroll to see full query →</p>
+      )}
+    </>
+  )
+}
+
 function KqlLibrary({ highlightId, highlightTerm, onHighlightDone, defaultLookback = '1d' }) {
   const [activeCategory, setActiveCategory] = useState('all')
   const [copiedId, setCopiedId] = useState(null)
@@ -136,6 +164,28 @@ function KqlLibrary({ highlightId, highlightTerm, onHighlightDone, defaultLookba
       onHighlightDone?.()
     }
   }, [highlightId, filtered, onHighlightDone])
+
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('searchHighlight')
+      if (!raw) return
+      const { type, value, timestamp } = JSON.parse(raw)
+      if (type !== 'query' || Date.now() - timestamp > 5000) return
+      sessionStorage.removeItem('searchHighlight')
+      const match = queries.find((q) => q.title === value || q.id === value)
+      if (!match) return
+      requestAnimationFrame(() => {
+        const el = document.getElementById(`query-card-${match.id}`)
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          el.classList.add('search-highlight')
+          setTimeout(() => el.classList.remove('search-highlight'), 2000)
+        }
+      })
+    } catch {
+      sessionStorage.removeItem('searchHighlight')
+    }
+  }, [])
 
   const copyKql = async (query) => {
     try {
@@ -227,9 +277,7 @@ function KqlLibrary({ highlightId, highlightTerm, onHighlightDone, defaultLookba
 
               {expandedValidation[query.id] && <ValidationPanel result={validation} />}
 
-              <pre className="kql-block">
-                <code>{updateTimeFilter(query.kql)}</code>
-              </pre>
+              <KqlCodeBlock kql={updateTimeFilter(query.kql)} />
 
               <div className="query-card-footer">
                 <p className="query-description">{query.description}</p>

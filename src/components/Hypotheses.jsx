@@ -11,6 +11,7 @@ import {
   updateHypothesisStatus,
   updateHypothesisFields,
   computeStatsForHypotheses,
+  getWorkflowStats,
 } from '../services/huntWorkflow'
 import { incrementQueriesRun } from '../services/huntSession'
 import HuntSession from './HuntSession'
@@ -133,6 +134,107 @@ function exportHuntReport(allHypotheses) {
   link.download = `threat-hunt-report-${new Date().toISOString().slice(0, 10)}.md`
   link.click()
   URL.revokeObjectURL(url)
+}
+
+function exportHuntReportPDF() {
+  const reportWindow = window.open('', '_blank')
+  if (!reportWindow) return
+
+  const stats = getWorkflowStats()
+  const sessions = JSON.parse(localStorage.getItem('huntSessions') || '[]')
+
+  let html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Threat Hunt Report - ${new Date().toLocaleDateString()}</title>
+      <style>
+        body { font-family: -apple-system, sans-serif; padding: 40px; color: #1c2128; max-width: 900px; margin: 0 auto; }
+        h1 { border-bottom: 3px solid #0969da; padding-bottom: 10px; }
+        h2 { color: #0969da; margin-top: 30px; }
+        .meta { color: #6e7781; font-size: 14px; margin-bottom: 20px; }
+        table { width: 100%; border-collapse: collapse; margin: 15px 0; }
+        th, td { border: 1px solid #d0d7de; padding: 8px 12px; text-align: left; font-size: 13px; }
+        th { background: #f6f8fa; }
+        .hyp-card { border: 1px solid #d0d7de; border-radius: 8px; padding: 15px; margin: 15px 0; page-break-inside: avoid; }
+        .badge { display: inline-block; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; margin-right: 6px; }
+        .critical { background: #ffebe9; color: #cf222e; }
+        .high { background: #fff8c5; color: #9a6700; }
+        .medium { background: #ddf4ff; color: #0969da; }
+        .low { background: #dafbe1; color: #1a7f37; }
+        .status-open { background: #f6f8fa; color: #6e7781; }
+        .status-in-progress { background: #ddf4ff; color: #0969da; }
+        .status-true-positive { background: #dafbe1; color: #1a7f37; }
+        .status-false-positive { background: #ffebe9; color: #cf222e; }
+        .status-closed { background: #f6f8fa; color: #6e7781; }
+        .note { background: #f6f8fa; border-left: 3px solid #0969da; padding: 8px 12px; margin: 8px 0; font-size: 13px; }
+        .tags span { background: #ddf4ff; color: #0969da; padding: 2px 8px; border-radius: 10px; font-size: 11px; margin-right: 4px; }
+        @media print { body { padding: 20px; } }
+      </style>
+    </head>
+    <body>
+      <h1>🛡️ Threat Hunt Report</h1>
+      <div class="meta">
+        Generated: ${new Date().toLocaleString()}<br>
+        Analyst: ${localStorage.getItem('analystName') || 'Not specified'}
+      </div>
+
+      <h2>Summary</h2>
+      <table>
+        <tr><th>Status</th><th>Count</th></tr>
+        <tr><td>Open</td><td>${stats.open}</td></tr>
+        <tr><td>In Progress</td><td>${stats.inProgress}</td></tr>
+        <tr><td>True Positive</td><td>${stats.truePositive}</td></tr>
+        <tr><td>False Positive</td><td>${stats.falsePositive}</td></tr>
+        <tr><td>Closed</td><td>${stats.closed}</td></tr>
+      </table>
+  `
+
+  if (sessions.length > 0) {
+    html += `<h2>Hunt Sessions</h2>`
+    sessions.forEach((s) => {
+      const duration = s.endTime
+        ? Math.round((new Date(s.endTime) - new Date(s.startTime)) / 60000)
+        : 'Ongoing'
+      html += `
+        <div class="hyp-card">
+          <strong>${s.name}</strong> - ${s.analyst}<br>
+          <span class="meta">Started: ${new Date(s.startTime).toLocaleString()} | Duration: ${duration} min</span>
+          ${s.conclusion ? `<br><span class="badge ${s.conclusion}">${s.conclusion}</span>` : ''}
+          <p>${s.scope || ''}</p>
+          ${s.findings ? `<div class="note"><strong>Findings:</strong> ${s.findings}</div>` : ''}
+        </div>
+      `
+    })
+  }
+
+  html += `<h2>Hypotheses Detail</h2>`
+
+  staticHypothesesData.forEach((h) => {
+    const wf = getHypothesisWorkflow(h.id)
+    const tacticChain = formatTacticChain(h.tacticChain)
+    const logSources = Array.isArray(h.logSources) ? h.logSources.join(', ') : h.logSources || ''
+    html += `
+      <div class="hyp-card">
+        <h3>${h.id} - ${h.title}</h3>
+        <span class="badge ${h.priority}">${h.priority?.toUpperCase()}</span>
+        <span class="badge status-${wf.status || 'open'}">${(wf.status || 'open').replace('-', ' ').toUpperCase()}</span>
+        <p><strong>Tactic Chain:</strong> ${tacticChain}</p>
+        <p><strong>Log Sources:</strong> ${logSources}</p>
+        <p>${h.description}</p>
+        <div class="tags">${(h.tags || []).map((t) => `<span>${t}</span>`).join('')}</div>
+        ${wf.analyst ? `<p><strong>Analyst:</strong> ${wf.analyst}</p>` : ''}
+        ${wf.notes ? `<div class="note"><strong>Notes:</strong> ${wf.notes}</div>` : ''}
+        <p class="meta">Last updated: ${wf.updatedAt ? new Date(wf.updatedAt).toLocaleString() : 'Never'}</p>
+      </div>
+    `
+  })
+
+  html += `</body></html>`
+
+  reportWindow.document.write(html)
+  reportWindow.document.close()
+  setTimeout(() => reportWindow.print(), 500)
 }
 
 function WorkflowStatusBadge({ status }) {
@@ -545,6 +647,27 @@ function Hypotheses({ highlightId, highlightTerm, onHighlightDone, onWorkflowCha
     })
   }, [highlightId, onHighlightDone])
 
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('searchHighlight')
+      if (!raw) return
+      const { type, value, timestamp } = JSON.parse(raw)
+      if (type !== 'hypothesis' || Date.now() - timestamp > 5000) return
+      sessionStorage.removeItem('searchHighlight')
+      setActiveTab('static')
+      requestAnimationFrame(() => {
+        const el = document.getElementById(`hypothesis-card-${value}`)
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          el.classList.add('search-highlight')
+          setTimeout(() => el.classList.remove('search-highlight'), 2000)
+        }
+      })
+    } catch {
+      sessionStorage.removeItem('searchHighlight')
+    }
+  }, [])
+
   const hasGroqKey = Boolean(groqApiKey.trim())
 
   const saveGroqKey = () => {
@@ -640,13 +763,22 @@ Focus log source: ${customLogFocus}`
     <div className="hypotheses-page">
       <div className="hyp-top-bar">
         <h2 className="hyp-page-title">Hypotheses</h2>
-        <button
-          type="button"
-          className="export-btn hyp-export-report-btn"
-          onClick={() => exportHuntReport(allHypothesesForExport)}
-        >
-          Export Hunt Report
-        </button>
+        <div className="hyp-export-btns">
+          <button
+            type="button"
+            className="export-btn hyp-export-report-btn"
+            onClick={() => exportHuntReport(allHypothesesForExport)}
+          >
+            Export Hunt Report
+          </button>
+          <button
+            type="button"
+            className="export-btn hyp-export-report-btn"
+            onClick={exportHuntReportPDF}
+          >
+            📄 Export as PDF
+          </button>
+        </div>
         <div className="hyp-tab-pills">
           <button
             type="button"

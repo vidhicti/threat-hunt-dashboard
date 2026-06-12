@@ -135,9 +135,26 @@ export default function IocTracker() {
   const [externalIOC, setExternalIOC] = useState('')
   const [externalIOCType, setExternalIOCType] = useState('Domain')
   const [recentSearches, setRecentSearches] = useState(loadRecentSearches)
+  const [searchHighlightIoc, setSearchHighlightIoc] = useState(null)
 
   useEffect(() => {
     loadIOCs()
+  }, [])
+
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('searchHighlight')
+      if (!raw) return
+      const { type, value, timestamp } = JSON.parse(raw)
+      if (type !== 'ioc' || Date.now() - timestamp > 5000) return
+      sessionStorage.removeItem('searchHighlight')
+      setSearch(value)
+      setPage(1)
+      setSearchHighlightIoc(value)
+      setTimeout(() => setSearchHighlightIoc(null), 2000)
+    } catch {
+      sessionStorage.removeItem('searchHighlight')
+    }
   }, [])
 
   useEffect(() => {
@@ -568,7 +585,7 @@ export default function IocTracker() {
           <tbody>
             {paginated.map((ioc,i) => (
               <>
-                <tr key={ioc.indicator+i} onClick={()=>setExpandedRow(expandedRow===i?null:i)} style={{borderBottom:"1px solid #21262d",cursor:"pointer",background:expandedRow===i?"#1c2128":"transparent"}} onMouseEnter={e=>e.currentTarget.style.background="#1c2128"} onMouseLeave={e=>e.currentTarget.style.background=expandedRow===i?"#1c2128":"transparent"}>
+                <tr key={ioc.indicator+i} className={searchHighlightIoc === ioc.indicator ? 'search-highlight' : ''} onClick={()=>setExpandedRow(expandedRow===i?null:i)} style={{borderBottom:"1px solid #21262d",cursor:"pointer",background:expandedRow===i?"#1c2128":"transparent"}} onMouseEnter={e=>{if(searchHighlightIoc!==ioc.indicator)e.currentTarget.style.background="#1c2128"}} onMouseLeave={e=>{if(searchHighlightIoc!==ioc.indicator)e.currentTarget.style.background=expandedRow===i?"#1c2128":"transparent"}}>
                   <td style={{padding:"8px"}} onClick={e=>e.stopPropagation()}><input type="checkbox" checked={selected.has(ioc.indicator)} onChange={()=>toggleSelect(ioc.indicator)} /></td>
                   <td style={{padding:"8px",color:"#58a6ff",maxWidth:180,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontFamily:"monospace",fontSize:11}} title={ioc.indicator}>{ioc.indicator}</td>
                   <td style={{padding:"8px"}}><span style={{fontSize:10,padding:"2px 6px",borderRadius:4,background:"#21262d",color:"#c9d1d9",border:"1px solid #30363d"}}>{ioc.type}</span></td>

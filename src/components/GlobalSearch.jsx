@@ -129,6 +129,24 @@ function GlobalSearch({ iocs = [], onResultSelect }) {
         : category === 'queries'
           ? item.id
           : item.id
+    const highlightType =
+      category === 'iocs' ? 'ioc' : category === 'queries' ? 'query' : 'hypothesis'
+    const highlightValue =
+      category === 'iocs'
+        ? item.indicator
+        : category === 'queries'
+          ? item.title
+          : item.id
+
+    sessionStorage.setItem(
+      'searchHighlight',
+      JSON.stringify({
+        type: highlightType,
+        value: highlightValue,
+        timestamp: Date.now(),
+      })
+    )
+
     onResultSelect?.({
       tab: category === 'iocs' ? 'iocs' : category === 'queries' ? 'kql' : 'hypotheses',
       id,
@@ -136,6 +154,7 @@ function GlobalSearch({ iocs = [], onResultSelect }) {
     })
     setIsOpen(false)
     setQuery('')
+    setMobileExpanded(false)
   }
 
   const hasResults =
