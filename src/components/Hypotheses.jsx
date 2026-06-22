@@ -4,7 +4,6 @@ import queries from '../data/queries.json'
 import {
   fetchLiveThreatActors,
   generateHypothesisFromActor,
-  generateCustomHypothesis,
 } from '../services/hypothesisGenerator'
 import {
   getHypothesisWorkflow,
@@ -25,17 +24,6 @@ const PRIORITY_BORDER = {
 
 const STATIC_COUNT = staticHypothesesData.length
 
-const QUICK_SUGGESTIONS = [
-  'Ransomware pre-staging activity',
-  'Credential dumping and lateral movement',
-  'Phishing to execution kill chain',
-  'DNS tunneling C2 communication',
-  'Supply chain compromise indicators',
-  'Insider threat data exfiltration',
-]
-
-const PRIORITY_OPTIONS = ['Critical', 'High', 'Medium', 'Low']
-
 const WORKFLOW_STATUSES = [
   { id: 'open', label: 'Open' },
   { id: 'in-progress', label: 'In Progress' },
@@ -51,18 +39,6 @@ const STATUS_LABELS = {
   'false-positive': 'False Positive ✗',
   closed: 'Closed',
 }
-
-const LOG_SOURCE_FOCUS = [
-  { value: 'All', label: 'All' },
-  { value: 'Fortigate', label: 'Fortigate' },
-  { value: 'Palo Alto', label: 'Palo Alto' },
-  { value: 'Sophos', label: 'Sophos' },
-  { value: 'AD', label: 'AD' },
-  { value: 'MDE', label: 'MDE' },
-  { value: 'DNS', label: 'DNS' },
-  { value: 'O365', label: 'O365' },
-  { value: 'TrendMicro', label: 'TrendMicro' },
-]
 
 function formatTacticChain(tacticChain) {
   if (Array.isArray(tacticChain)) return tacticChain.join(' → ')
@@ -564,18 +540,13 @@ function Hypotheses({ highlightId, highlightTerm, onHighlightDone, onWorkflowCha
 
   const [threatActors, setThreatActors] = useState([])
   const [liveHypotheses, setLiveHypotheses] = useState([])
-  const [customHypotheses, setCustomHypotheses] = useState([])
-  const [customResult, setCustomResult] = useState(null)
 
   const [loadingActors, setLoadingActors] = useState(false)
   const [loadingGenerate, setLoadingGenerate] = useState(false)
-  const [loadingCustom, setLoadingCustom] = useState(false)
   const [selectedActor, setSelectedActor] = useState(null)
   const [error, setError] = useState(null)
+  const [actorSearchFilter, setActorSearchFilter] = useState(null)
 
-  const [customInput, setCustomInput] = useState('')
-  const [customPriority, setCustomPriority] = useState('High')
-  const [customLogFocus, setCustomLogFocus] = useState('All')
   const [statusFilter, setStatusFilter] = useState(null)
   const [workflowTick, setWorkflowTick] = useState(0)
 
@@ -585,33 +556,38 @@ function Hypotheses({ highlightId, highlightTerm, onHighlightDone, onWorkflowCha
   }, [onWorkflowChange])
 
   const allHypothesesForExport = useMemo(
-    () => [
-      ...staticHypothesesData,
-      ...liveHypotheses,
-      ...(customResult ? [customResult] : []),
-      ...customHypotheses,
-    ],
-    [liveHypotheses, customHypotheses, customResult]
+    () => [...staticHypothesesData, ...liveHypotheses],
+    [liveHypotheses]
   )
 
   const staticFiltered = useMemo(() => {
     void workflowTick
-    return filterByWorkflowStatus(staticHypothesesData, statusFilter)
-  }, [statusFilter, workflowTick])
+    let list = filterByWorkflowStatus(staticHypothesesData, statusFilter)
+    if (actorSearchFilter) {
+      const term = actorSearchFilter.toLowerCase()
+      list = list.filter(
+        (hyp) =>
+          hyp.title?.toLowerCase().includes(term) ||
+          (hyp.tags || []).some((t) => t.toLowerCase().includes(term))
+      )
+    }
+    return list
+  }, [statusFilter, workflowTick, actorSearchFilter])
 
   const liveFiltered = useMemo(() => {
     void workflowTick
-    return filterByWorkflowStatus(liveHypotheses, statusFilter)
-  }, [liveHypotheses, statusFilter, workflowTick])
-
-  const customListFiltered = useMemo(() => {
-    void workflowTick
-    const list = [
-      ...(customResult ? [customResult] : []),
-      ...customHypotheses,
-    ]
-    return filterByWorkflowStatus(list, statusFilter)
-  }, [customHypotheses, customResult, statusFilter, workflowTick])
+    let list = filterByWorkflowStatus(liveHypotheses, statusFilter)
+    if (actorSearchFilter) {
+      const term = actorSearchFilter.toLowerCase()
+      list = list.filter(
+        (hyp) =>
+          hyp.title?.toLowerCase().includes(term) ||
+          hyp.threatActor?.toLowerCase().includes(term) ||
+          (hyp.tags || []).some((t) => t.toLowerCase().includes(term))
+      )
+    }
+    return list
+  }, [liveHypotheses, statusFilter, workflowTick, actorSearchFilter])
 
   const staticStats = useMemo(() => {
     void workflowTick
@@ -622,14 +598,6 @@ function Hypotheses({ highlightId, highlightTerm, onHighlightDone, onWorkflowCha
     void workflowTick
     return computeStatsForHypotheses(liveHypotheses)
   }, [liveHypotheses, workflowTick])
-
-  const customStats = useMemo(() => {
-    void workflowTick
-    return computeStatsForHypotheses([
-      ...(customResult ? [customResult] : []),
-      ...customHypotheses,
-    ])
-  }, [customHypotheses, customResult, workflowTick])
 
   const queriesById = useMemo(
     () => Object.fromEntries(queries.map((q) => [q.id, q])),
@@ -665,6 +633,42 @@ function Hypotheses({ highlightId, highlightTerm, onHighlightDone, onWorkflowCha
       })
     } catch {
       sessionStorage.removeItem('searchHighlight')
+    }
+  }, [])
+
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('hypothesisActorSearch')
+      if (!raw) return
+      const { actor, timestamp } = JSON.parse(raw)
+      if (Date.now() - timestamp > 10000) return
+      sessionStorage.removeItem('hypothesisActorSearch')
+      setActorSearchFilter(actor)
+      const term = actor.toLowerCase()
+      const liveSaved = JSON.parse(localStorage.getItem('liveHypotheses') || '[]')
+      const liveMatches = liveSaved.filter(
+        (hyp) =>
+          hyp.title?.toLowerCase().includes(term) ||
+          hyp.threatActor?.toLowerCase().includes(term) ||
+          (hyp.tags || []).some((t) => t.toLowerCase().includes(term))
+      )
+      const staticMatches = staticHypothesesData.filter(
+        (hyp) =>
+          hyp.title?.toLowerCase().includes(term) ||
+          (hyp.tags || []).some((t) => t.toLowerCase().includes(term))
+      )
+      setActiveTab(liveMatches.length > 0 ? 'live' : staticMatches.length > 0 ? 'static' : 'live')
+    } catch {
+      sessionStorage.removeItem('hypothesisActorSearch')
+    }
+  }, [])
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('liveHypotheses')
+      if (saved) setLiveHypotheses(JSON.parse(saved))
+    } catch {
+      /* ignore */
     }
   }, [])
 
@@ -708,49 +712,17 @@ function Hypotheses({ highlightId, highlightTerm, onHighlightDone, onWorkflowCha
       hyp.id = hyp.id || `LIVE-${Date.now()}`
       hyp.generatedAt = hyp.generatedAt || new Date().toISOString()
       hyp.threatActor = actor.name
-      setLiveHypotheses((prev) => [hyp, ...prev])
+      setLiveHypotheses((prev) => {
+        const updated = [hyp, ...prev]
+        localStorage.setItem('liveHypotheses', JSON.stringify(updated))
+        return updated
+      })
     } catch (e) {
       setError(e.message || 'Failed to generate hypothesis')
     } finally {
       setLoadingGenerate(false)
       setSelectedActor(null)
     }
-  }
-
-  const buildCustomRequirements = useCallback(() => {
-    return `${customInput.trim()}
-
-Priority: ${customPriority}
-Focus log source: ${customLogFocus}`
-  }, [customInput, customPriority, customLogFocus])
-
-  const handleGenerateCustom = async () => {
-    if (!hasGroqKey) {
-      setError('Groq API key required')
-      return
-    }
-    if (!customInput.trim()) return
-    setLoadingCustom(true)
-    setError(null)
-    setCustomResult(null)
-    try {
-      const hyp = await generateCustomHypothesis(buildCustomRequirements(), groqApiKey)
-      hyp.id = hyp.id || `CUSTOM-${Date.now()}`
-      hyp.generatedAt = hyp.generatedAt || new Date().toISOString()
-      setCustomResult(hyp)
-    } catch (e) {
-      setError(e.message || 'Failed to generate custom hypothesis')
-    } finally {
-      setLoadingCustom(false)
-    }
-  }
-
-  const saveCustomResult = () => {
-    if (!customResult) return
-    setCustomHypotheses((prev) => {
-      if (prev.some((h) => h.id === customResult.id)) return prev
-      return [customResult, ...prev]
-    })
   }
 
   const actorSeverityColor = (severity) => {
@@ -794,13 +766,6 @@ Focus log source: ${customLogFocus}`
           >
             Live Threat Actors
           </button>
-          <button
-            type="button"
-            className={`hyp-tab-pill ${activeTab === 'custom' ? 'active' : ''}`}
-            onClick={() => setActiveTab('custom')}
-          >
-            Custom Generator
-          </button>
         </div>
       </div>
 
@@ -823,6 +788,13 @@ Focus log source: ${customLogFocus}`
       )}
 
       {error && <div className="hyp-error-alert">{error}</div>}
+
+      {actorSearchFilter && (
+        <div className="hyp-actor-search-banner">
+          <span>Filtering hypotheses for threat actor: <strong>{actorSearchFilter}</strong></span>
+          <button type="button" onClick={() => setActorSearchFilter(null)}>Clear filter</button>
+        </div>
+      )}
 
       <HuntSession hypotheses={staticHypothesesData} />
 
@@ -965,154 +937,6 @@ Focus log source: ${customLogFocus}`
                 {liveFiltered.length === 0 && (
                   <p className="hyp-empty-filter">No hypotheses match this status filter.</p>
                 )}
-              </div>
-            </section>
-          )}
-        </div>
-      )}
-
-      {activeTab === 'custom' && (
-        <div className="hyp-custom-tab">
-          <section className="hyp-custom-form-card">
-            <h3>Generate Custom Hunt Hypothesis</h3>
-            {!hasGroqKey && (
-              <p className="hyp-key-required">Groq API key required</p>
-            )}
-            <textarea
-              className="hyp-custom-textarea"
-              rows={6}
-              placeholder={`Describe what you want to hunt for. Examples:
-- Hunt for lateral movement using RDP from non-server machines in our environment
-- Detect data exfiltration via DNS tunneling targeting our finance department
-- Find persistence mechanisms targeting our AD environment
-- Hunt for ransomware pre-stage activity in our file servers`}
-              value={customInput}
-              onChange={(e) => setCustomInput(e.target.value)}
-            />
-            <div className="hyp-suggestion-chips">
-              {QUICK_SUGGESTIONS.map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  className="suggestion-chip"
-                  onClick={() => setCustomInput(s)}
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
-            <div className="hyp-custom-controls">
-              <label>
-                Priority
-                <select
-                  value={customPriority}
-                  onChange={(e) => setCustomPriority(e.target.value)}
-                >
-                  {PRIORITY_OPTIONS.map((p) => (
-                    <option key={p} value={p}>
-                      {p}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Focus log source
-                <select
-                  value={customLogFocus}
-                  onChange={(e) => setCustomLogFocus(e.target.value)}
-                >
-                  {LOG_SOURCE_FOCUS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-            <button
-              type="button"
-              className="hyp-generate-full-btn"
-              disabled={!customInput.trim() || !hasGroqKey || loadingCustom}
-              onClick={handleGenerateCustom}
-            >
-              Generate Hypothesis
-            </button>
-            {loadingCustom && (
-              <div className="hyp-loading-row">
-                <span className="spinner" aria-hidden="true" />
-                AI is generating your custom hypothesis...
-              </div>
-            )}
-          </section>
-
-          {(customResult || customHypotheses.length > 0) && (
-            <WorkflowStatsBar
-              stats={customStats}
-              statusFilter={statusFilter}
-              onFilterChange={setStatusFilter}
-            />
-          )}
-
-          {customResult && (
-            <section className="hyp-custom-result">
-              <HypothesisCard
-                hyp={customResult}
-                cardKey="custom-result"
-                expandedId={expandedId}
-                setExpandedId={setExpandedId}
-                queriesById={queriesById}
-                kqlDefaultOpen
-                showExport
-                extraBadges={<span className="ai-generated-badge">AI Generated</span>}
-                onWorkflowChange={handleWorkflowChange}
-                workflowTick={workflowTick}
-              />
-              <div className="hyp-custom-result-actions">
-                <button type="button" className="export-btn" onClick={saveCustomResult}>
-                  Save to My Hypotheses
-                </button>
-                <button
-                  type="button"
-                  className="export-btn"
-                  onClick={() => exportHypothesisKql(customResult, queriesById)}
-                >
-                  Export All KQL
-                </button>
-                <button
-                  type="button"
-                  className="hyp-regenerate-btn"
-                  onClick={handleGenerateCustom}
-                  disabled={loadingCustom || !hasGroqKey}
-                >
-                  Regenerate
-                </button>
-              </div>
-            </section>
-          )}
-
-          {customHypotheses.length > 0 && (
-            <section className="hyp-saved-custom">
-              <h3>My Saved Hypotheses</h3>
-              <div className="hypotheses-list">
-                {customListFiltered
-                  .filter((h) => customHypotheses.some((c) => c.id === h.id))
-                  .map((hyp) => (
-                  <HypothesisCard
-                    key={hyp.id}
-                    hyp={hyp}
-                    cardKey="custom"
-                    expandedId={expandedId}
-                    setExpandedId={setExpandedId}
-                    queriesById={queriesById}
-                    showExport
-                    onRemove={(id) =>
-                      setCustomHypotheses((prev) => prev.filter((h) => h.id !== id))
-                    }
-                    extraBadges={<span className="ai-generated-badge">AI Generated</span>}
-                    onWorkflowChange={handleWorkflowChange}
-                    workflowTick={workflowTick}
-                  />
-                ))}
               </div>
             </section>
           )}

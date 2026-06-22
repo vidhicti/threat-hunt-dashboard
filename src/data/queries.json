@@ -1,39 +1,39 @@
 [
   {
     "id": "Q01",
-    "title": "Spearphishing Attachment via O365",
+    "title": "Phishing Macro Execution Chain",
     "tactic": "Initial Access",
     "tacticId": "TA0001",
     "mitreTechnique": "T1566.001",
-    "logSource": "OfficeActivity",
+    "logSource": "MDE",
     "severity": "high",
     "category": "initial-access",
-    "description": "Detects suspicious attachment downloads or mail access for executable and script file types via Office 365.",
-    "kql": "OfficeActivity\n| where TimeGenerated > ago(7d)\n| where Operation in (\"FileDownloaded\", \"MailItemsAccessed\")\n| extend FileName = tostring(AttachmentData.FileName)\n| where FileName endswith \".exe\" or FileName endswith \".js\" or FileName endswith \".vbs\" or FileName endswith \".iso\" or FileName endswith \".lnk\"\n| summarize EventCount = count() by UserId, Operation, FileName, bin(TimeGenerated, 1h)\n| order by EventCount desc"
+    "description": "Detects Office applications spawning suspicious scripting binaries indicative of macro-based phishing execution chains.",
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nDeviceProcessEvents\n| where Timestamp > ago(1d)\n| where InitiatingProcessFileName in~ ('winword.exe','excel.exe','powerpnt.exe','outlook.exe','mspub.exe','visio.exe')\n| where FileName in~ ('powershell.exe','pwsh.exe','wscript.exe','cscript.exe','cmd.exe','mshta.exe','rundll32.exe','regsvr32.exe','certutil.exe','bitsadmin.exe')\n| where InitiatingProcessCommandLine !contains \"OfficeClickToRun\"\n| where InitiatingProcessFileName !in~ ('MsMpEng.exe','SenseIR.exe','csrss.exe','services.exe','svchost.exe')\n| extend SuspiciousIndicators = case(\n    ProcessCommandLine has_any ('-enc','-encodedcommand','-ec','-en'), 'EncodedCommand',\n    ProcessCommandLine has_any ('http','https','ftp'), 'NetworkConnection', \n    ProcessCommandLine has_any ('IEX','Invoke-Expression','DownloadString','DownloadFile'), 'Download',\n    ProcessCommandLine has_any ('bypass','hidden','noninteractive','-nop'), 'Evasion',\n    'SuspiciousExecution')\n| project Timestamp, DeviceName, AccountName, InitiatingProcessFileName, \n    FileName, ProcessCommandLine, SuspiciousIndicators,\n    InitiatingProcessCommandLine\n| order by Timestamp desc"
   },
   {
     "id": "Q02",
-    "title": "Spearphishing Link Clicked via O365",
+    "title": "LOLBin Execution",
     "tactic": "Initial Access",
     "tacticId": "TA0001",
-    "mitreTechnique": "T1566.002",
-    "logSource": "OfficeActivity",
+    "mitreTechnique": "T1218",
+    "logSource": "SecurityEvents",
     "severity": "high",
     "category": "initial-access",
-    "description": "Identifies users clicking URLs in email where the destination is outside trusted Microsoft domains.",
-    "kql": "OfficeActivity\n| where TimeGenerated > ago(7d)\n| where Operation == \"UrlClicked\"\n| extend Url = tostring(UrlClicked.Url)\n| where isnotempty(Url)\n| where Url !contains \"sharepoint.com\" and Url !contains \"microsoft.com\" and Url !contains \"office.com\"\n| summarize ClickCount = count(), Urls = make_set(Url, 5) by UserId, bin(TimeGenerated, 1h)\n| order by ClickCount desc"
+    "description": "Identifies living-off-the-land binaries with suspicious command-line indicators in Security Event 4688 logs.",
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nSecurityEvent\n| where TimeGenerated > ago(1d)\n| where EventID == 4688\n| extend ProcessName = tostring(split(NewProcessName,'\\\\')[-1])\n| where ProcessName in~ ('certutil.exe','msiexec.exe','regsvr32.exe','rundll32.exe','wmic.exe','mshta.exe','bitsadmin.exe','installutil.exe','regasm.exe','regsvcs.exe','cmstp.exe','msbuild.exe','dnscmd.exe','odbcconf.exe','pcalua.exe')\n| where CommandLine has_any ('-urlcache','-decode','-encode','http://','https://','ftp://','\\\\\\\\','javascript:','vbscript:','/i:http','/sta','scrobj.dll')\n| where SubjectUserName !endswith '$'\n| where SubjectUserName !in ('Administrator', 'admin', 'svc_backup', 'breakglass')\n| where NewProcessName !startswith 'C:\\\\Windows\\\\WinSxS\\\\'\n| extend ThreatIndicator = case(\n    CommandLine has '-urlcache', 'FileDownload',\n    CommandLine has '-decode', 'Base64Decode',\n    CommandLine has 'javascript:', 'JavaScriptExecution',\n    CommandLine has '\\\\\\\\', 'UNCPathExecution',\n    'SuspiciousLOLBin')\n| project TimeGenerated, Computer, SubjectUserName, NewProcessName, CommandLine, ThreatIndicator, ParentProcessName\n| order by TimeGenerated desc"
   },
   {
     "id": "Q03",
-    "title": "Exploit Public-Facing App - Fortigate",
+    "title": "Scheduled Task Creation",
     "tactic": "Initial Access",
     "tacticId": "TA0001",
-    "mitreTechnique": "T1190",
-    "logSource": "CommonSecurityLog",
+    "mitreTechnique": "T1053.005",
+    "logSource": "SecurityEvents",
     "severity": "critical",
     "category": "initial-access",
-    "description": "Surfaces high-severity Fortinet firewall events on web ports from external sources indicative of exploitation attempts.",
-    "kql": "CommonSecurityLog\n| where TimeGenerated > ago(7d)\n| where DeviceVendor == \"Fortinet\"\n| where DestinationPort in (\"80\", \"443\")\n| where DeviceSeverity in (\"high\", \"critical\", \"warning\")\n| extend SrcIp = SourceIP\n| where isnotempty(SrcIp) and not(ipv4_is_private(tostring(SrcIp)))\n| summarize EventCount = count(), Signatures = make_set(Activity, 10) by SrcIp, DestinationIP, DestinationPort, DeviceSeverity, bin(TimeGenerated, 1h)\n| order by EventCount desc"
+    "description": "Detects scheduled tasks created or modified with suspicious paths, scripting engines, or network indicators.",
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nSecurityEvent\n| where TimeGenerated > ago(1d)\n| where EventID in (4698, 4702)\n| extend TaskName = tostring(EventData.TaskName)\n| extend TaskContent = tostring(EventData.TaskContent)\n| extend ClientProcessId = tostring(EventData.ClientProcessId)\n| where TaskContent has_any ('powershell','cmd','wscript','cscript','mshta','regsvr32','rundll32','certutil','bitsadmin')\n| where TaskContent has_any ('%temp%','%appdata%','%public%','\\\\users\\\\','\\\\programdata\\\\','c:\\\\windows\\\\temp')\n    or TaskContent has_any ('http','https','ftp','\\\\\\\\')\n| extend SuspiciousPath = extract(@'(?i)(c:\\\\users\\\\[^\\\\]+\\\\appdata|%temp%|c:\\\\windows\\\\temp|c:\\\\programdata)', 0, TaskContent)\n| extend HasNetworkIndicator = TaskContent has_any ('http','https','ftp','\\\\\\\\')\n| project TimeGenerated, Computer, Account, TaskName, SuspiciousPath, HasNetworkIndicator, TaskContent\n| order by TimeGenerated desc"
   },
   {
     "id": "Q04",
@@ -45,7 +45,7 @@
     "severity": "critical",
     "category": "initial-access",
     "description": "Detects critical Palo Alto threat logs targeting public-facing services.",
-    "kql": "CommonSecurityLog\n| where TimeGenerated > ago(7d)\n| where DeviceVendor == \"Palo Alto Networks\"\n| where LogSeverity == \"critical\" or ThreatCategory has_any (\"exploit\", \"vulnerability\", \"exploit-kit\")\n| summarize EventCount = count(), Threats = make_set(ThreatCategory, 10) by SourceIP, DestinationIP, DestinationPort, LogSeverity, bin(TimeGenerated, 1h)\n| order by EventCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nCommonSecurityLog\n| where TimeGenerated > ago(7d)\n| where not(ipv4_is_private(tostring(DestinationIP))) or not(ipv4_is_private(tostring(SourceIP)))\n| where DeviceVendor == \"Palo Alto Networks\"\n| where LogSeverity == \"critical\" or ThreatCategory has_any (\"exploit\", \"vulnerability\", \"exploit-kit\")\n| summarize EventCount = count(), Threats = make_set(ThreatCategory, 10) by SourceIP, DestinationIP, DestinationPort, LogSeverity, bin(TimeGenerated, 1h)\n| order by EventCount desc"
   },
   {
     "id": "Q05",
@@ -57,7 +57,7 @@
     "severity": "critical",
     "category": "initial-access",
     "description": "Flags successful sign-ins for the same user from multiple countries within one hour.",
-    "kql": "SigninLogs\n| where TimeGenerated > ago(7d)\n| where ResultType == 0\n| extend Country = tostring(LocationDetails.countryOrRegion)\n| summarize Countries = make_set(Country), FirstSeen = min(TimeGenerated), LastSeen = max(TimeGenerated) by UserPrincipalName, bin(TimeGenerated, 1h)\n| where array_length(Countries) > 1\n| extend TimeSpanMinutes = datetime_diff('minute', LastSeen, FirstSeen)\n| where TimeSpanMinutes <= 60\n| project UserPrincipalName, Countries, TimeSpanMinutes, FirstSeen, LastSeen\n| order by TimeSpanMinutes asc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nSigninLogs\n| where TimeGenerated > ago(7d)\n| where UserPrincipalName !in ('admin@company.com', 'breakglass@company.com')\n| where ResultType == 0\n| extend Country = tostring(LocationDetails.countryOrRegion)\n| summarize Countries = make_set(Country), FirstSeen = min(TimeGenerated), LastSeen = max(TimeGenerated) by UserPrincipalName, bin(TimeGenerated, 1h)\n| where array_length(Countries) > 1\n| extend TimeSpanMinutes = datetime_diff('minute', LastSeen, FirstSeen)\n| where TimeSpanMinutes <= 60\n| project UserPrincipalName, Countries, TimeSpanMinutes, FirstSeen, LastSeen\n| order by TimeSpanMinutes asc"
   },
   {
     "id": "Q06",
@@ -69,7 +69,7 @@
     "severity": "medium",
     "category": "initial-access",
     "description": "Detects interactive logons outside business hours from non-service accounts.",
-    "kql": "SecurityEvent\n| where TimeGenerated > ago(7d)\n| where EventID == 4624\n| extend LogonType = toint(EventData.LogonType)\n| extend Account = tostring(EventData.TargetUserName)\n| where LogonType in (2, 10)\n| where not(Account endswith \"$\" or Account contains \"SERVICE\")\n| extend Hour = datetime_part(\"hour\", TimeGenerated)\n| where Hour >= 22 or Hour < 6\n| summarize LogonCount = count() by Account, Computer, bin(TimeGenerated, 1d)\n| order by LogonCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nSecurityEvent\n| where TimeGenerated > ago(7d)\n| where Account !in ('Administrator', 'admin', 'svc_backup', 'breakglass')\n| where EventID == 4624\n| extend LogonType = toint(EventData.LogonType)\n| extend Account = tostring(EventData.TargetUserName)\n| where LogonType in (2, 10)\n| where not(Account endswith \"$\" or Account contains \"SERVICE\")\n| extend Hour = datetime_part(\"hour\", TimeGenerated)\n| where Hour >= 22 or Hour < 6\n| summarize LogonCount = count() by Account, Computer, bin(TimeGenerated, 1d)\n| order by LogonCount desc"
   },
   {
     "id": "Q07",
@@ -81,7 +81,7 @@
     "severity": "high",
     "category": "execution",
     "description": "Detects PowerShell execution with encoded command-line arguments in MDE process events.",
-    "kql": "DeviceProcessEvents\n| where Timestamp > ago(7d)\n| where FileName in~ (\"powershell.exe\", \"pwsh.exe\")\n| where ProcessCommandLine has \"-enc\" or ProcessCommandLine has \"-EncodedCommand\"\n| summarize EventCount = count() by DeviceName, AccountName, ProcessCommandLine, bin(Timestamp, 1h)\n| order by EventCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nDeviceProcessEvents\n| where Timestamp > ago(1d)\n| where FileName =~ 'powershell.exe' or FileName =~ 'pwsh.exe'\n| where ProcessCommandLine matches regex @'(?i)[-/][Ee][Nn][Cc][Oo]?[Dd]?[Ee]?[Dd]?[Cc]?[Oo]?[Mm]?[Mm]?[Aa]?[Nn]?[Dd]?'\n    or ProcessCommandLine has '-ec '\n    or ProcessCommandLine has ' -en '\n| where InitiatingProcessFileName !in~ ('MsMpEng.exe','SenseIR.exe','csrss.exe','services.exe','svchost.exe')\n| extend EncodedPayload = extract(@'(?i)[-/][Ee][Nn][Cc][a-zA-Z]* ([A-Za-z0-9+/=]{20,})', 1, ProcessCommandLine)\n| extend DecodedPayload = base64_decode_tostring(EncodedPayload)\n| extend HasSuspiciousDecoded = DecodedPayload has_any ('IEX','Invoke-Expression','DownloadString','WebClient','Net.WebClient','System.Net','DownloadFile','bypass','hidden','Start-Process','Invoke-Command','Enter-PSSession')\n| extend CommandLength = strlen(ProcessCommandLine)\n| where isnotempty(EncodedPayload)\n| project Timestamp, DeviceName, AccountName, ProcessCommandLine, \n    EncodedPayload, DecodedPayload, HasSuspiciousDecoded, CommandLength\n| order by Timestamp desc"
   },
   {
     "id": "Q08",
@@ -93,7 +93,7 @@
     "severity": "high",
     "category": "execution",
     "description": "Identifies cmd.exe invocations with download cradles or remote execution patterns.",
-    "kql": "DeviceProcessEvents\n| where Timestamp > ago(7d)\n| where FileName =~ \"cmd.exe\"\n| where ProcessCommandLine has \"/c\"\n| where ProcessCommandLine has_any (\"curl\", \"wget\", \"bitsadmin\", \"certutil\", \"http://\", \"https://\", \"powershell\")\n| summarize EventCount = count() by DeviceName, AccountName, ProcessCommandLine, bin(Timestamp, 1h)\n| order by EventCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nDeviceProcessEvents\n| where Timestamp > ago(7d)\n| where InitiatingProcessFileName !in~ ('MsMpEng.exe','SenseIR.exe','csrss.exe','services.exe','svchost.exe','explorer.exe')\n| where FileName =~ \"cmd.exe\"\n| where ProcessCommandLine has \"/c\"\n| where ProcessCommandLine has_any (\"curl\", \"wget\", \"bitsadmin\", \"certutil\", \"http://\", \"https://\", \"powershell\")\n| summarize EventCount = count() by DeviceName, AccountName, ProcessCommandLine, bin(Timestamp, 1h)\n| order by EventCount desc"
   },
   {
     "id": "Q09",
@@ -105,7 +105,7 @@
     "severity": "high",
     "category": "execution",
     "description": "Detects wscript or cscript spawned from Office applications or user temp directories.",
-    "kql": "DeviceProcessEvents\n| where Timestamp > ago(7d)\n| where FileName in~ (\"wscript.exe\", \"cscript.exe\")\n| where InitiatingProcessFileName in~ (\"winword.exe\", \"excel.exe\", \"outlook.exe\", \"powerpnt.exe\")\n    or FolderPath has_any (\"\\\\Temp\\\\\", \"\\\\Downloads\\\\\", \"\\\\AppData\\\\\")\n| summarize EventCount = count() by DeviceName, InitiatingProcessFileName, FileName, ProcessCommandLine, bin(Timestamp, 1h)\n| order by EventCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nDeviceProcessEvents\n| where Timestamp > ago(7d)\n| where FileName in~ (\"wscript.exe\", \"cscript.exe\")\n| where InitiatingProcessFileName in~ (\"winword.exe\", \"excel.exe\", \"outlook.exe\", \"powerpnt.exe\")\n    or FolderPath has_any (\"\\\\Temp\\\\\", \"\\\\Downloads\\\\\", \"\\\\AppData\\\\\")\n| summarize EventCount = count() by DeviceName, InitiatingProcessFileName, FileName, ProcessCommandLine, bin(Timestamp, 1h)\n| order by EventCount desc"
   },
   {
     "id": "Q10",
@@ -117,7 +117,7 @@
     "severity": "high",
     "category": "execution",
     "description": "Surfaces processes started from Downloads, Temp, or AppData folders.",
-    "kql": "DeviceProcessEvents\n| where Timestamp > ago(7d)\n| where FolderPath has_any (\"\\\\Downloads\\\\\", \"\\\\Temp\\\\\", \"\\\\AppData\\\\\")\n| where ActionType == \"ProcessCreated\"\n| summarize EventCount = count(), Processes = make_set(FileName, 10) by DeviceName, FolderPath, AccountName, bin(Timestamp, 1h)\n| order by EventCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nDeviceProcessEvents\n| where Timestamp > ago(7d)\n| where InitiatingProcessFileName !in~ ('MsMpEng.exe','SenseIR.exe','csrss.exe','services.exe','svchost.exe','explorer.exe')\n| where FolderPath has_any (\"\\\\Downloads\\\\\", \"\\\\Temp\\\\\", \"\\\\AppData\\\\\")\n| where ActionType == \"ProcessCreated\"\n| summarize EventCount = count(), Processes = make_set(FileName, 10) by DeviceName, FolderPath, AccountName, bin(Timestamp, 1h)\n| order by EventCount desc"
   },
   {
     "id": "Q11",
@@ -129,7 +129,7 @@
     "severity": "medium",
     "category": "execution",
     "description": "Detects wmiprvse.exe spawning command shells or PowerShell.",
-    "kql": "DeviceProcessEvents\n| where Timestamp > ago(7d)\n| where InitiatingProcessFileName =~ \"wmiprvse.exe\"\n| where FileName in~ (\"cmd.exe\", \"powershell.exe\", \"pwsh.exe\")\n| summarize EventCount = count() by DeviceName, FileName, ProcessCommandLine, bin(Timestamp, 1h)\n| order by EventCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nDeviceProcessEvents\n| where Timestamp > ago(7d)\n| where InitiatingProcessFileName =~ \"wmiprvse.exe\"\n| where FileName in~ (\"cmd.exe\", \"powershell.exe\", \"pwsh.exe\")\n| summarize EventCount = count() by DeviceName, FileName, ProcessCommandLine, bin(Timestamp, 1h)\n| order by EventCount desc"
   },
   {
     "id": "Q12",
@@ -141,7 +141,7 @@
     "severity": "high",
     "category": "execution",
     "description": "Identifies living-off-the-land binaries used for download, decode, or proxy execution in 4688 events.",
-    "kql": "SecurityEvent\n| where TimeGenerated > ago(7d)\n| where EventID == 4688\n| extend CommandLine = tostring(EventData.CommandLine)\n| extend ProcessName = tostring(EventData.ProcessName)\n| where ProcessName has_any (\"certutil.exe\", \"msiexec.exe\", \"regsvr32.exe\", \"rundll32.exe\")\n| where CommandLine has_any (\"-urlcache\", \"-verifyctl\", \"-decode\", \"/i http\", \"/s /u\", \"http://\", \"https://\")\n| summarize EventCount = count() by Computer, ProcessName, CommandLine, bin(TimeGenerated, 1h)\n| order by EventCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nSecurityEvent\n| where TimeGenerated > ago(7d)\n| where NewProcessName !startswith 'C:\\\\Windows\\\\WinSxS\\\\'\n| where EventID == 4688\n| extend CommandLine = tostring(EventData.CommandLine)\n| extend ProcessName = tostring(EventData.ProcessName)\n| where ProcessName has_any (\"certutil.exe\", \"msiexec.exe\", \"regsvr32.exe\", \"rundll32.exe\")\n| where CommandLine has_any (\"-urlcache\", \"-verifyctl\", \"-decode\", \"/i http\", \"/s /u\", \"http://\", \"https://\")\n| summarize EventCount = count() by Computer, ProcessName, CommandLine, bin(TimeGenerated, 1h)\n| order by EventCount desc"
   },
   {
     "id": "Q13",
@@ -153,7 +153,7 @@
     "severity": "high",
     "category": "persistence",
     "description": "Detects scheduled tasks created or modified pointing to temp or user-writable directories.",
-    "kql": "SecurityEvent\n| where TimeGenerated > ago(7d)\n| where EventID in (4698, 4702)\n| extend TaskContent = tostring(EventData.TaskContent)\n| extend TaskName = tostring(EventData.TaskName)\n| where TaskContent has_any (\"\\\\Temp\\\\\", \"\\\\AppData\\\\\", \"\\\\Users\\\\\", \"\\\\ProgramData\\\\\")\n| summarize EventCount = count() by Computer, TaskName, bin(TimeGenerated, 1h)\n| order by EventCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nSecurityEvent\n| where TimeGenerated > ago(7d)\n| where EventID in (4698, 4702)\n| extend TaskContent = tostring(EventData.TaskContent)\n| extend TaskName = tostring(EventData.TaskName)\n| where TaskContent has_any (\"\\\\Temp\\\\\", \"\\\\AppData\\\\\", \"\\\\Users\\\\\", \"\\\\ProgramData\\\\\")\n| summarize EventCount = count() by Computer, TaskName, bin(TimeGenerated, 1h)\n| order by EventCount desc"
   },
   {
     "id": "Q14",
@@ -165,7 +165,7 @@
     "severity": "high",
     "category": "persistence",
     "description": "Detects modifications to Run/RunOnce registry keys for autostart persistence.",
-    "kql": "DeviceRegistryEvents\n| where Timestamp > ago(7d)\n| where RegistryKey has_any (\"\\\\CurrentVersion\\\\Run\", \"\\\\CurrentVersion\\\\RunOnce\")\n| where ActionType in (\"RegistryValueSet\", \"RegistryKeyCreated\")\n| summarize EventCount = count() by DeviceName, RegistryKey, RegistryValueName, RegistryValueData, bin(Timestamp, 1h)\n| order by EventCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nDeviceRegistryEvents\n| where Timestamp > ago(7d)\n| where RegistryKey has_any (\"\\\\CurrentVersion\\\\Run\", \"\\\\CurrentVersion\\\\RunOnce\")\n| where ActionType in (\"RegistryValueSet\", \"RegistryKeyCreated\")\n| summarize EventCount = count() by DeviceName, RegistryKey, RegistryValueName, RegistryValueData, bin(Timestamp, 1h)\n| order by EventCount desc"
   },
   {
     "id": "Q15",
@@ -177,7 +177,7 @@
     "severity": "critical",
     "category": "persistence",
     "description": "Correlates local account creation with Administrators group membership within five minutes.",
-    "kql": "let AccountCreated = SecurityEvent\n    | where TimeGenerated > ago(7d)\n    | where EventID == 4720\n    | extend NewAccount = tostring(EventData.TargetUserName)\n    | project CreateTime = TimeGenerated, Computer, NewAccount;\nlet AdminAdded = SecurityEvent\n    | where TimeGenerated > ago(7d)\n    | where EventID == 4732\n    | extend MemberName = tostring(EventData.MemberName)\n    | extend GroupName = tostring(EventData.TargetUserName)\n    | where GroupName contains \"Administrators\"\n    | project AddTime = TimeGenerated, Computer, MemberName;\nAccountCreated\n| join kind=inner AdminAdded on Computer\n| where MemberName contains NewAccount\n| where AddTime between (CreateTime .. (CreateTime + 5m))\n| project CreateTime, AddTime, Computer, NewAccount\n| order by CreateTime desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nlet AccountCreated = SecurityEvent\n    | where TimeGenerated > ago(7d)\n    | where EventID == 4720\n    | extend NewAccount = tostring(EventData.TargetUserName)\n    | project CreateTime = TimeGenerated, Computer, NewAccount;\nlet AdminAdded = SecurityEvent\n    | where TimeGenerated > ago(7d)\n    | where EventID == 4732\n    | extend MemberName = tostring(EventData.MemberName)\n    | extend GroupName = tostring(EventData.TargetUserName)\n    | where GroupName contains \"Administrators\"\n    | project AddTime = TimeGenerated, Computer, MemberName;\nAccountCreated\n| join kind=inner AdminAdded on Computer\n| where MemberName contains NewAccount\n| where AddTime between (CreateTime .. (CreateTime + 5m))\n| project CreateTime, AddTime, Computer, NewAccount\n| order by CreateTime desc"
   },
   {
     "id": "Q16",
@@ -189,7 +189,7 @@
     "severity": "high",
     "category": "persistence",
     "description": "Detects domain account creation events on domain controllers.",
-    "kql": "SecurityEvent\n| where TimeGenerated > ago(7d)\n| where EventID == 4720\n| extend TargetDomain = tostring(EventData.TargetDomainName)\n| extend NewAccount = tostring(EventData.TargetUserName)\n| extend Creator = tostring(EventData.SubjectUserName)\n| where isnotempty(TargetDomain) and TargetDomain !~ \"-\"\n| summarize EventCount = count() by Computer, TargetDomain, NewAccount, Creator, bin(TimeGenerated, 1d)\n| order by EventCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nSecurityEvent\n| where TimeGenerated > ago(7d)\n| where EventID == 4720\n| extend TargetDomain = tostring(EventData.TargetDomainName)\n| extend NewAccount = tostring(EventData.TargetUserName)\n| extend Creator = tostring(EventData.SubjectUserName)\n| where isnotempty(TargetDomain) and TargetDomain !~ \"-\"\n| summarize EventCount = count() by Computer, TargetDomain, NewAccount, Creator, bin(TimeGenerated, 1d)\n| order by EventCount desc"
   },
   {
     "id": "Q17",
@@ -201,7 +201,7 @@
     "severity": "high",
     "category": "persistence",
     "description": "Detects new services with binaries in temp, AppData, or user profile paths.",
-    "kql": "DeviceEvents\n| where Timestamp > ago(7d)\n| where ActionType has \"Service\"\n| extend ServicePath = tostring(AdditionalFields.ServicePath)\n| where ServicePath has_any (\"\\\\Temp\\\\\", \"\\\\AppData\\\\\", \"\\\\Users\\\\\")\n| summarize EventCount = count() by DeviceName, ActionType, ServicePath, bin(Timestamp, 1h)\n| order by EventCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nDeviceEvents\n| where Timestamp > ago(7d)\n| where ActionType has \"Service\"\n| extend ServicePath = tostring(AdditionalFields.ServicePath)\n| where ServicePath has_any (\"\\\\Temp\\\\\", \"\\\\AppData\\\\\", \"\\\\Users\\\\\")\n| summarize EventCount = count() by DeviceName, ActionType, ServicePath, bin(Timestamp, 1h)\n| order by EventCount desc"
   },
   {
     "id": "Q18",
@@ -213,7 +213,7 @@
     "severity": "critical",
     "category": "persistence",
     "description": "Detects users added to Administrators or Domain Admins groups.",
-    "kql": "SecurityEvent\n| where TimeGenerated > ago(7d)\n| where EventID in (4732, 4756)\n| extend MemberName = tostring(EventData.MemberName)\n| extend GroupName = tostring(EventData.TargetUserName)\n| extend Subject = tostring(EventData.SubjectUserName)\n| where GroupName has_any (\"Administrators\", \"Domain Admins\")\n| summarize EventCount = count() by Computer, GroupName, MemberName, Subject, bin(TimeGenerated, 1h)\n| order by EventCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nSecurityEvent\n| where TimeGenerated > ago(7d)\n| where EventID in (4732, 4756)\n| extend MemberName = tostring(EventData.MemberName)\n| extend GroupName = tostring(EventData.TargetUserName)\n| extend Subject = tostring(EventData.SubjectUserName)\n| where GroupName has_any (\"Administrators\", \"Domain Admins\")\n| summarize EventCount = count() by Computer, GroupName, MemberName, Subject, bin(TimeGenerated, 1h)\n| order by EventCount desc"
   },
   {
     "id": "Q19",
@@ -225,7 +225,7 @@
     "severity": "critical",
     "category": "privilege-escalation",
     "description": "Detects unusual parent processes spawning svchost or lsass.",
-    "kql": "DeviceProcessEvents\n| where Timestamp > ago(7d)\n| where FileName in~ (\"svchost.exe\", \"lsass.exe\")\n| where InitiatingProcessFileName !in~ (\"services.exe\", \"wininit.exe\", \"csrss.exe\")\n| summarize EventCount = count() by DeviceName, InitiatingProcessFileName, FileName, ProcessCommandLine, bin(Timestamp, 1h)\n| order by EventCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nDeviceProcessEvents\n| where Timestamp > ago(7d)\n| where FileName in~ (\"svchost.exe\", \"lsass.exe\")\n| where InitiatingProcessFileName !in~ (\"services.exe\", \"wininit.exe\", \"csrss.exe\")\n| summarize EventCount = count() by DeviceName, InitiatingProcessFileName, FileName, ProcessCommandLine, bin(Timestamp, 1h)\n| order by EventCount desc"
   },
   {
     "id": "Q20",
@@ -237,7 +237,7 @@
     "severity": "high",
     "category": "privilege-escalation",
     "description": "Detects fodhelper.exe or eventvwr.exe spawning child processes for UAC bypass.",
-    "kql": "DeviceProcessEvents\n| where Timestamp > ago(7d)\n| where InitiatingProcessFileName in~ (\"fodhelper.exe\", \"eventvwr.exe\")\n| where FileName !in~ (\"fodhelper.exe\", \"eventvwr.exe\", \"mmc.exe\")\n| summarize EventCount = count() by DeviceName, InitiatingProcessFileName, FileName, ProcessCommandLine, bin(Timestamp, 1h)\n| order by EventCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nDeviceProcessEvents\n| where Timestamp > ago(7d)\n| where InitiatingProcessFileName in~ (\"fodhelper.exe\", \"eventvwr.exe\")\n| where FileName !in~ (\"fodhelper.exe\", \"eventvwr.exe\", \"mmc.exe\")\n| summarize EventCount = count() by DeviceName, InitiatingProcessFileName, FileName, ProcessCommandLine, bin(Timestamp, 1h)\n| order by EventCount desc"
   },
   {
     "id": "Q21",
@@ -249,7 +249,7 @@
     "severity": "high",
     "category": "privilege-escalation",
     "description": "Detects SeImpersonatePrivilege assignment to non-system processes.",
-    "kql": "DeviceEvents\n| where Timestamp > ago(7d)\n| where ActionType has_any (\"PrivilegeEscalation\", \"SensitivePrivilege\")\n| extend Privilege = tostring(AdditionalFields.Privilege)\n| where Privilege has \"SeImpersonatePrivilege\"\n| where InitiatingProcessAccountName !endswith \"$\"\n| summarize EventCount = count() by DeviceName, InitiatingProcessFileName, Privilege, bin(Timestamp, 1h)\n| order by EventCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nDeviceEvents\n| where Timestamp > ago(7d)\n| where ActionType has_any (\"PrivilegeEscalation\", \"SensitivePrivilege\")\n| extend Privilege = tostring(AdditionalFields.Privilege)\n| where Privilege has \"SeImpersonatePrivilege\"\n| where InitiatingProcessAccountName !endswith \"$\"\n| summarize EventCount = count() by DeviceName, InitiatingProcessFileName, Privilege, bin(Timestamp, 1h)\n| order by EventCount desc"
   },
   {
     "id": "Q22",
@@ -261,7 +261,7 @@
     "severity": "critical",
     "category": "privilege-escalation",
     "description": "Detects unsigned drivers loaded from temp or user-writable paths.",
-    "kql": "DeviceEvents\n| where Timestamp > ago(7d)\n| where ActionType has \"Driver\"\n| extend DriverPath = tostring(AdditionalFields.DriverPath)\n| where DriverPath has_any (\"\\\\Temp\\\\\", \"\\\\Users\\\\\", \"\\\\AppData\\\\\")\n| summarize EventCount = count() by DeviceName, DriverPath, ActionType, bin(Timestamp, 1h)\n| order by EventCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nDeviceEvents\n| where Timestamp > ago(7d)\n| where ActionType has \"Driver\"\n| extend DriverPath = tostring(AdditionalFields.DriverPath)\n| where DriverPath has_any (\"\\\\Temp\\\\\", \"\\\\Users\\\\\", \"\\\\AppData\\\\\")\n| summarize EventCount = count() by DeviceName, DriverPath, ActionType, bin(Timestamp, 1h)\n| order by EventCount desc"
   },
   {
     "id": "Q23",
@@ -273,7 +273,7 @@
     "severity": "critical",
     "category": "defense-evasion",
     "description": "Correlates Trend Micro security events with Windows service stop events for EDR tampering.",
-    "kql": "let TrendAlerts = CommonSecurityLog\n    | where TimeGenerated > ago(7d)\n    | where DeviceVendor == \"Trend Micro\"\n    | where Activity has_any (\"stop\", \"disabled\", \"tamper\");\nlet ServiceStop = SecurityEvent\n    | where TimeGenerated > ago(7d)\n    | where EventID == 7036\n    | extend ServiceName = tostring(EventData.ServiceName)\n    | where ServiceName has_any (\"Trend\", \"ds_agent\", \"Endpoint\");\nunion TrendAlerts, ServiceStop\n| summarize EventCount = count() by Computer, Activity, ServiceName = tostring(EventData.ServiceName), bin(TimeGenerated, 1h)\n| order by EventCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nlet TrendAlerts = CommonSecurityLog\n    | where TimeGenerated > ago(7d)\n| where not(ipv4_is_private(tostring(DestinationIP))) or not(ipv4_is_private(tostring(SourceIP)))\n    | where DeviceVendor == \"Trend Micro\"\n    | where Activity has_any (\"stop\", \"disabled\", \"tamper\");\nlet ServiceStop = SecurityEvent\n    | where TimeGenerated > ago(7d)\n    | where EventID == 7036\n    | extend ServiceName = tostring(EventData.ServiceName)\n    | where ServiceName has_any (\"Trend\", \"ds_agent\", \"Endpoint\");\nunion TrendAlerts, ServiceStop\n| summarize EventCount = count() by Computer, Activity, ServiceName = tostring(EventData.ServiceName), bin(TimeGenerated, 1h)\n| order by EventCount desc"
   },
   {
     "id": "Q24",
@@ -285,7 +285,7 @@
     "severity": "critical",
     "category": "defense-evasion",
     "description": "Detects registry changes disabling Windows Defender real-time protection.",
-    "kql": "DeviceRegistryEvents\n| where Timestamp > ago(7d)\n| where RegistryKey has \"Windows Defender\"\n| where RegistryValueName in (\"DisableAntiSpyware\", \"DisableRealtimeMonitoring\")\n| where RegistryValueData in (\"1\", \"0x1\")\n| summarize EventCount = count() by DeviceName, RegistryKey, RegistryValueName, AccountName, bin(Timestamp, 1h)\n| order by EventCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nDeviceRegistryEvents\n| where Timestamp > ago(7d)\n| where RegistryKey has \"Windows Defender\"\n| where RegistryValueName in (\"DisableAntiSpyware\", \"DisableRealtimeMonitoring\")\n| where RegistryValueData in (\"1\", \"0x1\")\n| summarize EventCount = count() by DeviceName, RegistryKey, RegistryValueName, AccountName, bin(Timestamp, 1h)\n| order by EventCount desc"
   },
   {
     "id": "Q25",
@@ -297,7 +297,7 @@
     "severity": "critical",
     "category": "defense-evasion",
     "description": "Detects audit or security log clearing events.",
-    "kql": "SecurityEvent\n| where TimeGenerated > ago(7d)\n| where EventID in (1102, 104)\n| extend Subject = tostring(EventData.SubjectUserName)\n| summarize EventCount = count() by Computer, EventID, Subject, bin(TimeGenerated, 1d)\n| order by EventCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nSecurityEvent\n| where TimeGenerated > ago(7d)\n| where EventID in (1102, 104)\n| extend Subject = tostring(EventData.SubjectUserName)\n| summarize EventCount = count() by Computer, EventID, Subject, bin(TimeGenerated, 1d)\n| order by EventCount desc"
   },
   {
     "id": "Q26",
@@ -309,7 +309,7 @@
     "severity": "high",
     "category": "defense-evasion",
     "description": "Detects svchost.exe executing outside the System32 directory.",
-    "kql": "DeviceProcessEvents\n| where Timestamp > ago(7d)\n| where FileName =~ \"svchost.exe\"\n| where not(FolderPath has \"\\\\Windows\\\\System32\\\\\")\n| summarize EventCount = count() by DeviceName, FolderPath, ProcessCommandLine, AccountName, bin(Timestamp, 1h)\n| order by EventCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nDeviceProcessEvents\n| where Timestamp > ago(7d)\n| where InitiatingProcessFileName !in~ ('MsMpEng.exe','SenseIR.exe','csrss.exe','services.exe','svchost.exe','explorer.exe')\n| where FileName =~ \"svchost.exe\"\n| where not(FolderPath has \"\\\\Windows\\\\System32\\\\\")\n| summarize EventCount = count() by DeviceName, FolderPath, ProcessCommandLine, AccountName, bin(Timestamp, 1h)\n| order by EventCount desc"
   },
   {
     "id": "Q27",
@@ -321,7 +321,7 @@
     "severity": "high",
     "category": "defense-evasion",
     "description": "Detects PowerShell with very long command lines or char() obfuscation patterns.",
-    "kql": "DeviceProcessEvents\n| where Timestamp > ago(7d)\n| where FileName in~ (\"powershell.exe\", \"pwsh.exe\")\n| where strlen(ProcessCommandLine) > 1000 or ProcessCommandLine has \"char(\"\n| summarize EventCount = count() by DeviceName, AccountName, bin(Timestamp, 1h)\n| order by EventCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nDeviceProcessEvents\n| where Timestamp > ago(7d)\n| where InitiatingProcessFileName !in~ ('MsMpEng.exe','SenseIR.exe','csrss.exe','services.exe','svchost.exe','explorer.exe')\n| where FileName in~ (\"powershell.exe\", \"pwsh.exe\")\n| where strlen(ProcessCommandLine) > 1000 or ProcessCommandLine has \"char(\"\n| summarize EventCount = count() by DeviceName, AccountName, bin(Timestamp, 1h)\n| order by EventCount desc"
   },
   {
     "id": "Q28",
@@ -333,7 +333,7 @@
     "severity": "high",
     "category": "defense-evasion",
     "description": "Detects rundll32 executing remote URLs or UNC paths.",
-    "kql": "DeviceProcessEvents\n| where Timestamp > ago(7d)\n| where FileName =~ \"rundll32.exe\"\n| where ProcessCommandLine has_any (\"http://\", \"https://\", \"\\\\\\\\\")\n| summarize EventCount = count() by DeviceName, ProcessCommandLine, bin(Timestamp, 1h)\n| order by EventCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nDeviceProcessEvents\n| where Timestamp > ago(7d)\n| where InitiatingProcessFileName !in~ ('MsMpEng.exe','SenseIR.exe','csrss.exe','services.exe','svchost.exe','explorer.exe')\n| where FileName =~ \"rundll32.exe\"\n| where ProcessCommandLine has_any (\"http://\", \"https://\", \"\\\\\\\\\")\n| summarize EventCount = count() by DeviceName, ProcessCommandLine, bin(Timestamp, 1h)\n| order by EventCount desc"
   },
   {
     "id": "Q29",
@@ -345,7 +345,7 @@
     "severity": "critical",
     "category": "credential-access",
     "description": "Detects non-system processes accessing LSASS or known credential dumping tools.",
-    "kql": "DeviceProcessEvents\n| where Timestamp > ago(7d)\n| where InitiatingProcessFileName has_any (\"mimikatz\", \"procdump\", \"comsvcs.dll\")\n    or ProcessCommandLine has \"lsass\"\n| where FileName =~ \"lsass.exe\" or ProcessCommandLine has \"lsass\"\n| summarize EventCount = count() by DeviceName, InitiatingProcessFileName, ProcessCommandLine, bin(Timestamp, 1h)\n| order by EventCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nDeviceEvents\n| where Timestamp > ago(1d)\n| where ActionType == 'OpenProcess'\n| where FileName =~ 'lsass.exe'\n| where InitiatingProcessFileName !in~ (\n    'MsMpEng.exe','SenseIR.exe','csrss.exe','werfault.exe','WerFaultSecure.exe',\n    'taskmgr.exe','procexp.exe','procexp64.exe','perfmon.exe','mmc.exe',\n    'services.exe','lsm.exe','svchost.exe','SecurityHealthService.exe')\n| extend IsKnownHackTool = InitiatingProcessFileName in~ ('procdump.exe','procdump64.exe','mimikatz.exe','pwdump.exe','fgdump.exe','wce.exe','gsecdump.exe')\n| extend SuspiciousPath = InitiatingProcessFolderPath !startswith 'C:\\\\Windows\\\\System32\\\\'\n    and InitiatingProcessFolderPath !startswith 'C:\\\\Windows\\\\SysWOW64\\\\'\n    and InitiatingProcessFolderPath !startswith 'C:\\\\Program Files\\\\'\n| extend RiskLevel = case(\n    IsKnownHackTool, 'CRITICAL - Known Credential Dump Tool',\n    SuspiciousPath, 'HIGH - Process from suspicious path',\n    'MEDIUM - Unexpected LSASS access')\n| project Timestamp, DeviceName, AccountName, InitiatingProcessFileName,\n    InitiatingProcessFolderPath, InitiatingProcessCommandLine, \n    IsKnownHackTool, RiskLevel\n| order by Timestamp desc"
   },
   {
     "id": "Q30",
@@ -357,7 +357,7 @@
     "severity": "critical",
     "category": "credential-access",
     "description": "Detects password spraying with many unique accounts failing from one source IP.",
-    "kql": "SecurityEvent\n| where TimeGenerated > ago(7d)\n| where EventID == 4625\n| extend TargetUser = tostring(EventData.TargetUserName)\n| extend IpAddress = tostring(EventData.IpAddress)\n| where IpAddress !in (\"-\", \"::1\", \"127.0.0.1\")\n| summarize UniqueAccounts = dcount(TargetUser), FailCount = count() by IpAddress, bin(TimeGenerated, 10m)\n| where UniqueAccounts > 20\n| order by UniqueAccounts desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nSecurityEvent\n| where TimeGenerated > ago(7d)\n| where SubjectUserName !in ('Administrator', 'admin', 'svc_backup', 'breakglass')\n| where EventID == 4625\n| extend TargetUser = tostring(EventData.TargetUserName)\n| extend IpAddress = tostring(EventData.IpAddress)\n| where IpAddress !in (\"-\", \"::1\", \"127.0.0.1\")\n| summarize UniqueAccounts = dcount(TargetUser), FailCount = count() by IpAddress, bin(TimeGenerated, 10m)\n| where UniqueAccounts > 20\n| order by UniqueAccounts desc"
   },
   {
     "id": "Q31",
@@ -369,7 +369,7 @@
     "severity": "high",
     "category": "credential-access",
     "description": "Correlates distributed failed O365 sign-in attempts across many accounts.",
-    "kql": "SigninLogs\n| where TimeGenerated > ago(7d)\n| where ResultType != 0\n| summarize FailedAttempts = count(), Users = dcount(UserPrincipalName) by IPAddress = tostring(IPAddress), bin(TimeGenerated, 10m)\n| where Users > 15 and FailedAttempts > 30\n| order by Users desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nSigninLogs\n| where TimeGenerated > ago(7d)\n| where UserPrincipalName !in ('admin@company.com', 'breakglass@company.com')\n| where ResultType != 0\n| summarize FailedAttempts = count(), Users = dcount(UserPrincipalName) by IPAddress = tostring(IPAddress), bin(TimeGenerated, 10m)\n| where Users > 15 and FailedAttempts > 30\n| order by Users desc"
   },
   {
     "id": "Q32",
@@ -381,7 +381,7 @@
     "severity": "high",
     "category": "credential-access",
     "description": "Detects Kerberos TGS requests using RC4 encryption indicative of Kerberoasting.",
-    "kql": "SecurityEvent\n| where TimeGenerated > ago(7d)\n| where EventID == 4769\n| extend TicketEncryption = tostring(EventData.TicketEncryptionType)\n| extend ServiceName = tostring(EventData.ServiceName)\n| where TicketEncryption == \"0x17\"\n| summarize RequestCount = count() by Computer, ServiceName, Account = tostring(EventData.TargetUserName), bin(TimeGenerated, 1h)\n| order by RequestCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nSecurityEvent\n| where TimeGenerated > ago(7d)\n| where EventID == 4769\n| extend TicketEncryption = tostring(EventData.TicketEncryptionType)\n| extend ServiceName = tostring(EventData.ServiceName)\n| where TicketEncryption == \"0x17\"\n| summarize RequestCount = count() by Computer, ServiceName, Account = tostring(EventData.TargetUserName), bin(TimeGenerated, 1h)\n| order by RequestCount desc"
   },
   {
     "id": "Q33",
@@ -393,7 +393,7 @@
     "severity": "medium",
     "category": "credential-access",
     "description": "Detects file access to credential-like filenames in sensitive directories.",
-    "kql": "DeviceFileEvents\n| where Timestamp > ago(7d)\n| where FileName has_any (\"password\", \"credential\", \"config\", \"secret\", \".kdbx\", \".pfx\")\n| where FolderPath has_any (\"\\\\Users\\\\\", \"\\\\ProgramData\\\\\", \"\\\\inetpub\\\\\")\n| summarize AccessCount = count() by DeviceName, FileName, FolderPath, InitiatingProcessFileName, bin(Timestamp, 1h)\n| order by AccessCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nDeviceFileEvents\n| where Timestamp > ago(7d)\n| where FileName has_any (\"password\", \"credential\", \"config\", \"secret\", \".kdbx\", \".pfx\")\n| where FolderPath has_any (\"\\\\Users\\\\\", \"\\\\ProgramData\\\\\", \"\\\\inetpub\\\\\")\n| summarize AccessCount = count() by DeviceName, FileName, FolderPath, InitiatingProcessFileName, bin(Timestamp, 1h)\n| order by AccessCount desc"
   },
   {
     "id": "Q34",
@@ -405,7 +405,7 @@
     "severity": "high",
     "category": "credential-access",
     "description": "Detects execution of packet capture tools by non-administrative users.",
-    "kql": "DeviceProcessEvents\n| where Timestamp > ago(7d)\n| where FileName in~ (\"wireshark.exe\", \"tcpdump.exe\", \"windump.exe\", \"dumpcap.exe\")\n| where not(InitiatingProcessAccountName has \"admin\")\n| summarize EventCount = count() by DeviceName, FileName, AccountName, ProcessCommandLine, bin(Timestamp, 1h)\n| order by EventCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nDeviceProcessEvents\n| where Timestamp > ago(7d)\n| where InitiatingProcessFileName !in~ ('MsMpEng.exe','SenseIR.exe','csrss.exe','services.exe','svchost.exe','explorer.exe')\n| where FileName in~ (\"wireshark.exe\", \"tcpdump.exe\", \"windump.exe\", \"dumpcap.exe\")\n| where not(InitiatingProcessAccountName has \"admin\")\n| summarize EventCount = count() by DeviceName, FileName, AccountName, ProcessCommandLine, bin(Timestamp, 1h)\n| order by EventCount desc"
   },
   {
     "id": "Q35",
@@ -417,7 +417,7 @@
     "severity": "medium",
     "category": "discovery",
     "description": "Detects net commands enumerating domain users and privileged groups.",
-    "kql": "DeviceProcessEvents\n| where Timestamp > ago(7d)\n| where FileName in~ (\"net.exe\", \"net1.exe\")\n| where ProcessCommandLine has_any (\"/domain\", \"domain admins\", \"group \"domain\")\n| summarize EventCount = count() by DeviceName, ProcessCommandLine, AccountName, bin(Timestamp, 1h)\n| order by EventCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nDeviceProcessEvents\n| where Timestamp > ago(7d)\n| where InitiatingProcessFileName !in~ ('MsMpEng.exe','SenseIR.exe','csrss.exe','services.exe','svchost.exe','explorer.exe')\n| where FileName in~ (\"net.exe\", \"net1.exe\")\n| where ProcessCommandLine has_any (\"/domain\", \"domain admins\", \"group \"domain\")\n| summarize EventCount = count() by DeviceName, ProcessCommandLine, AccountName, bin(Timestamp, 1h)\n| order by EventCount desc"
   },
   {
     "id": "Q36",
@@ -429,7 +429,7 @@
     "severity": "high",
     "category": "discovery",
     "description": "Detects a single internal source hitting many destination ports within five minutes on Fortinet or Palo Alto logs.",
-    "kql": "CommonSecurityLog\n| where TimeGenerated > ago(1d)\n| where DeviceVendor in (\"Fortinet\", \"Palo Alto Networks\")\n| where isnotempty(SourceIP) and ipv4_is_private(tostring(SourceIP))\n| summarize DistinctPorts = dcount(DestinationPort) by SourceIP, bin(TimeGenerated, 5m)\n| where DistinctPorts > 50\n| order by DistinctPorts desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nCommonSecurityLog\n| where TimeGenerated > ago(1d)\n| where DeviceVendor in (\"Fortinet\", \"Palo Alto Networks\")\n| where isnotempty(SourceIP) and ipv4_is_private(tostring(SourceIP))\n| summarize DistinctPorts = dcount(DestinationPort) by SourceIP, bin(TimeGenerated, 5m)\n| where DistinctPorts > 50\n| order by DistinctPorts desc"
   },
   {
     "id": "Q37",
@@ -441,7 +441,7 @@
     "severity": "medium",
     "category": "discovery",
     "description": "Detects rapid execution of network discovery utilities.",
-    "kql": "DeviceProcessEvents\n| where Timestamp > ago(7d)\n| where FileName in~ (\"ping.exe\", \"nslookup.exe\", \"arp.exe\", \"net.exe\")\n| where ProcessCommandLine has_any (\"-a\", \"view\", \"arp\", \"nslookup\")\n| summarize CommandCount = dcount(FileName) by DeviceName, AccountName, bin(Timestamp, 5m)\n| where CommandCount >= 3\n| order by CommandCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nDeviceProcessEvents\n| where Timestamp > ago(7d)\n| where InitiatingProcessFileName !in~ ('MsMpEng.exe','SenseIR.exe','csrss.exe','services.exe','svchost.exe','explorer.exe')\n| where FileName in~ (\"ping.exe\", \"nslookup.exe\", \"arp.exe\", \"net.exe\")\n| where ProcessCommandLine has_any (\"-a\", \"view\", \"arp\", \"nslookup\")\n| summarize CommandCount = dcount(FileName) by DeviceName, AccountName, bin(Timestamp, 5m)\n| where CommandCount >= 3\n| order by CommandCount desc"
   },
   {
     "id": "Q38",
@@ -453,7 +453,7 @@
     "severity": "low",
     "category": "discovery",
     "description": "Detects systeminfo, whoami, ipconfig, and hostname executed in quick succession.",
-    "kql": "DeviceProcessEvents\n| where Timestamp > ago(7d)\n| where FileName in~ (\"systeminfo.exe\", \"whoami.exe\", \"ipconfig.exe\", \"hostname.exe\")\n| summarize ToolCount = dcount(FileName) by DeviceName, AccountName, bin(Timestamp, 5m)\n| where ToolCount >= 3\n| order by ToolCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nDeviceProcessEvents\n| where Timestamp > ago(7d)\n| where InitiatingProcessFileName !in~ ('MsMpEng.exe','SenseIR.exe','csrss.exe','services.exe','svchost.exe','explorer.exe')\n| where FileName in~ (\"systeminfo.exe\", \"whoami.exe\", \"ipconfig.exe\", \"hostname.exe\")\n| summarize ToolCount = dcount(FileName) by DeviceName, AccountName, bin(Timestamp, 5m)\n| where ToolCount >= 3\n| order by ToolCount desc"
   },
   {
     "id": "Q39",
@@ -465,7 +465,7 @@
     "severity": "low",
     "category": "discovery",
     "description": "Detects ipconfig /all, route print, and netstat executed together.",
-    "kql": "DeviceProcessEvents\n| where Timestamp > ago(7d)\n| where ProcessCommandLine has_any (\"/all\", \"route print\", \"netstat -ano\", \"netstat -anb\")\n| summarize EventCount = count() by DeviceName, ProcessCommandLine, AccountName, bin(Timestamp, 1h)\n| order by EventCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nDeviceProcessEvents\n| where Timestamp > ago(7d)\n| where InitiatingProcessFileName !in~ ('MsMpEng.exe','SenseIR.exe','csrss.exe','services.exe','svchost.exe','explorer.exe')\n| where ProcessCommandLine has_any (\"/all\", \"route print\", \"netstat -ano\", \"netstat -anb\")\n| summarize EventCount = count() by DeviceName, ProcessCommandLine, AccountName, bin(Timestamp, 1h)\n| order by EventCount desc"
   },
   {
     "id": "Q40",
@@ -477,7 +477,7 @@
     "severity": "medium",
     "category": "discovery",
     "description": "Detects net localgroup and whoami group membership enumeration.",
-    "kql": "DeviceProcessEvents\n| where Timestamp > ago(7d)\n| where ProcessCommandLine has_any (\"localgroup\", \"whoami /groups\", \"whoami /priv\")\n| summarize EventCount = count() by DeviceName, ProcessCommandLine, AccountName, bin(Timestamp, 1h)\n| order by EventCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nDeviceProcessEvents\n| where Timestamp > ago(7d)\n| where InitiatingProcessFileName !in~ ('MsMpEng.exe','SenseIR.exe','csrss.exe','services.exe','svchost.exe','explorer.exe')\n| where ProcessCommandLine has_any (\"localgroup\", \"whoami /groups\", \"whoami /priv\")\n| summarize EventCount = count() by DeviceName, ProcessCommandLine, AccountName, bin(Timestamp, 1h)\n| order by EventCount desc"
   },
   {
     "id": "Q41",
@@ -489,7 +489,7 @@
     "severity": "high",
     "category": "lateral-movement",
     "description": "Detects RDP logons (type 10) sourced from internal workstations.",
-    "kql": "SecurityEvent\n| where TimeGenerated > ago(7d)\n| where EventID == 4624\n| extend LogonType = toint(EventData.LogonType)\n| extend IpAddress = tostring(EventData.IpAddress)\n| extend Workstation = tostring(EventData.WorkstationName)\n| where LogonType == 10\n| where isnotempty(Workstation) and Workstation !~ \"-\"\n| summarize LogonCount = count() by Computer, Workstation, IpAddress, Account = tostring(EventData.TargetUserName), bin(TimeGenerated, 1h)\n| order by LogonCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nSecurityEvent\n| where TimeGenerated > ago(7d)\n| where SubjectUserName !in ('Administrator', 'admin', 'svc_backup', 'breakglass')\n| where EventID == 4624\n| extend LogonType = toint(EventData.LogonType)\n| extend IpAddress = tostring(EventData.IpAddress)\n| extend Workstation = tostring(EventData.WorkstationName)\n| where LogonType == 10\n| where isnotempty(Workstation) and Workstation !~ \"-\"\n| summarize LogonCount = count() by Computer, Workstation, IpAddress, Account = tostring(EventData.TargetUserName), bin(TimeGenerated, 1h)\n| order by LogonCount desc"
   },
   {
     "id": "Q42",
@@ -501,7 +501,7 @@
     "severity": "high",
     "category": "lateral-movement",
     "description": "Detects NTLM network logons between workstations.",
-    "kql": "SecurityEvent\n| where TimeGenerated > ago(7d)\n| where EventID == 4624\n| extend LogonType = toint(EventData.LogonType)\n| extend AuthPackage = tostring(EventData.AuthenticationPackageName)\n| extend Workstation = tostring(EventData.WorkstationName)\n| where LogonType == 3\n| where AuthPackage =~ \"NTLM\"\n| where isnotempty(Workstation)\n| summarize LogonCount = count() by Computer, Workstation, Account = tostring(EventData.TargetUserName), bin(TimeGenerated, 1h)\n| order by LogonCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nSecurityEvent\n| where TimeGenerated > ago(7d)\n| where SubjectUserName !in ('Administrator', 'admin', 'svc_backup', 'breakglass')\n| where EventID == 4624\n| extend LogonType = toint(EventData.LogonType)\n| extend AuthPackage = tostring(EventData.AuthenticationPackageName)\n| extend Workstation = tostring(EventData.WorkstationName)\n| where LogonType == 3\n| where AuthPackage =~ \"NTLM\"\n| where isnotempty(Workstation)\n| summarize LogonCount = count() by Computer, Workstation, Account = tostring(EventData.TargetUserName), bin(TimeGenerated, 1h)\n| order by LogonCount desc"
   },
   {
     "id": "Q43",
@@ -513,7 +513,7 @@
     "severity": "critical",
     "category": "lateral-movement",
     "description": "Detects NTLM logons without preceding Kerberos from non-domain-controller sources.",
-    "kql": "SecurityEvent\n| where TimeGenerated > ago(7d)\n| where EventID == 4624\n| extend LogonType = toint(EventData.LogonType)\n| extend AuthPackage = tostring(EventData.AuthenticationPackageName)\n| extend IpAddress = tostring(EventData.IpAddress)\n| where LogonType == 3\n| where AuthPackage =~ \"NTLM\"\n| where IpAddress !in (\"-\", \"::1\")\n| summarize LogonCount = count() by Computer, Account = tostring(EventData.TargetUserName), IpAddress, bin(TimeGenerated, 1h)\n| where LogonCount > 5\n| order by LogonCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nSecurityEvent\n| where TimeGenerated > ago(1d)\n| where EventID == 4624\n| where LogonType == 3\n| where AuthenticationPackageName == 'NTLM'\n| where AccountName !endswith '$'\n| where AccountName !in ('Administrator', 'admin', 'svc_backup', 'breakglass')\n| where WorkstationName != ComputerName\n| where IpAddress !in ('::1','127.0.0.1','')\n| where IpAddress !startswith '169.254'\n| extend IsInternalIP = ipv4_is_private(IpAddress)\n| where IsInternalIP == true\n| summarize \n    LogonCount = count(),\n    DistinctTargets = dcount(ComputerName),\n    DistinctSourceIPs = dcount(IpAddress),\n    TargetComputers = make_set(ComputerName, 10),\n    TimeRange = strcat(format_datetime(min(TimeGenerated),'HH:mm'), '-', format_datetime(max(TimeGenerated),'HH:mm'))\n    by AccountName, IpAddress, bin(TimeGenerated, 1h)\n| where DistinctTargets >= 3 or LogonCount >= 10\n| extend RiskScore = (DistinctTargets * 20) + (LogonCount * 2)\n| order by RiskScore desc"
   },
   {
     "id": "Q44",
@@ -525,7 +525,7 @@
     "severity": "high",
     "category": "lateral-movement",
     "description": "Detects WinRM connections on ports 5985/5986 between internal hosts.",
-    "kql": "DeviceNetworkEvents\n| where Timestamp > ago(7d)\n| where RemotePort in (5985, 5986)\n| where ActionType == \"ConnectionSuccess\"\n| summarize ConnectionCount = count() by DeviceName, RemoteIP, RemotePort, InitiatingProcessFileName, bin(Timestamp, 1h)\n| order by ConnectionCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nDeviceNetworkEvents\n| where Timestamp > ago(7d)\n| where not(ipv4_is_private(RemoteIP))\n| where RemotePort in (5985, 5986)\n| where ActionType == \"ConnectionSuccess\"\n| summarize ConnectionCount = count() by DeviceName, RemoteIP, RemotePort, InitiatingProcessFileName, bin(Timestamp, 1h)\n| order by ConnectionCount desc"
   },
   {
     "id": "Q45",
@@ -537,7 +537,7 @@
     "severity": "medium",
     "category": "lateral-movement",
     "description": "Detects processes started from removable drive letters.",
-    "kql": "DeviceEvents\n| where Timestamp > ago(7d)\n| where ActionType == \"ProcessCreated\"\n| extend ProcessPath = tostring(AdditionalFields.ProcessPath)\n| where ProcessPath matches regex @\"[E-Z]:\\\\\"\n| where not(ProcessPath startswith \"C:\")\n| summarize EventCount = count() by DeviceName, ProcessPath, bin(Timestamp, 1h)\n| order by EventCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nDeviceEvents\n| where Timestamp > ago(7d)\n| where ActionType == \"ProcessCreated\"\n| extend ProcessPath = tostring(AdditionalFields.ProcessPath)\n| where ProcessPath matches regex @\"[E-Z]:\\\\\"\n| where not(ProcessPath startswith \"C:\")\n| summarize EventCount = count() by DeviceName, ProcessPath, bin(Timestamp, 1h)\n| order by EventCount desc"
   },
   {
     "id": "Q46",
@@ -549,7 +549,7 @@
     "severity": "high",
     "category": "collection",
     "description": "Detects bulk mailbox access or bind operations exceeding 100 items.",
-    "kql": "OfficeActivity\n| where TimeGenerated > ago(7d)\n| where Operation in (\"MailItemsAccessed\", \"MessageBind\")\n| summarize ItemCount = count() by UserId, Operation, ClientIP, bin(TimeGenerated, 1h)\n| where ItemCount > 100\n| order by ItemCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nOfficeActivity\n| where TimeGenerated > ago(7d)\n| where Operation in (\"MailItemsAccessed\", \"MessageBind\")\n| summarize ItemCount = count() by UserId, Operation, ClientIP, bin(TimeGenerated, 1h)\n| where ItemCount > 100\n| order by ItemCount desc"
   },
   {
     "id": "Q47",
@@ -561,7 +561,7 @@
     "severity": "medium",
     "category": "collection",
     "description": "Detects large files written to Temp or AppData directories.",
-    "kql": "DeviceFileEvents\n| where Timestamp > ago(7d)\n| where FolderPath has_any (\"\\\\Temp\\\\\", \"\\\\AppData\\\\\")\n| where ActionType == \"FileCreated\"\n| summarize TotalSizeMB = sum(FileSize) / 1048576.0, FileCount = count() by DeviceName, FolderPath, bin(Timestamp, 1h)\n| where TotalSizeMB > 50\n| order by TotalSizeMB desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nDeviceFileEvents\n| where Timestamp > ago(7d)\n| where FolderPath has_any (\"\\\\Temp\\\\\", \"\\\\AppData\\\\\")\n| where ActionType == \"FileCreated\"\n| summarize TotalSizeMB = sum(FileSize) / 1048576.0, FileCount = count() by DeviceName, FolderPath, bin(Timestamp, 1h)\n| where TotalSizeMB > 50\n| order by TotalSizeMB desc"
   },
   {
     "id": "Q48",
@@ -573,7 +573,7 @@
     "severity": "high",
     "category": "collection",
     "description": "Detects archive utilities run with password protection flags.",
-    "kql": "DeviceProcessEvents\n| where Timestamp > ago(7d)\n| where FileName in~ (\"7z.exe\", \"rar.exe\", \"winrar.exe\", \"zip.exe\")\n| where ProcessCommandLine has_any (\"-p\", \"-hp\", \"password\")\n| summarize EventCount = count() by DeviceName, FileName, ProcessCommandLine, bin(Timestamp, 1h)\n| order by EventCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nDeviceProcessEvents\n| where Timestamp > ago(7d)\n| where InitiatingProcessFileName !in~ ('MsMpEng.exe','SenseIR.exe','csrss.exe','services.exe','svchost.exe','explorer.exe')\n| where FileName in~ (\"7z.exe\", \"rar.exe\", \"winrar.exe\", \"zip.exe\")\n| where ProcessCommandLine has_any (\"-p\", \"-hp\", \"password\")\n| summarize EventCount = count() by DeviceName, FileName, ProcessCommandLine, bin(Timestamp, 1h)\n| order by EventCount desc"
   },
   {
     "id": "Q49",
@@ -585,7 +585,7 @@
     "severity": "critical",
     "category": "exfiltration",
     "description": "Detects outbound transfers exceeding 50MB to a single external IP on Fortinet firewalls.",
-    "kql": "CommonSecurityLog\n| where TimeGenerated > ago(1d)\n| where DeviceVendor == \"Fortinet\"\n| extend SentBytes = tolong(SentBytes)\n| where SentBytes > 52428800\n| where not(ipv4_is_private(tostring(DestinationIP)))\n| summarize TotalMB = sum(SentBytes) / 1048576.0, Sessions = count() by SourceIP, DestinationIP, bin(TimeGenerated, 1h)\n| order by TotalMB desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nCommonSecurityLog\n| where TimeGenerated > ago(1d)\n| where DeviceVendor == \"Fortinet\"\n| extend SentBytes = tolong(SentBytes)\n| where SentBytes > 52428800\n| where not(ipv4_is_private(tostring(DestinationIP)))\n| summarize TotalMB = sum(SentBytes) / 1048576.0, Sessions = count() by SourceIP, DestinationIP, bin(TimeGenerated, 1h)\n| order by TotalMB desc"
   },
   {
     "id": "Q50",
@@ -597,7 +597,7 @@
     "severity": "critical",
     "category": "exfiltration",
     "description": "Detects abnormally long DNS queries or high query rates to the same domain.",
-    "kql": "ASimDnsActivityLogs\n| where TimeGenerated > ago(1d)\n| extend QueryLength = strlen(DnsQuery)\n| summarize QueryCount = count(), AvgLength = avg(QueryLength) by SrcIpAddr, DnsQuery, bin(TimeGenerated, 1m)\n| where QueryCount > 200 or AvgLength > 100\n| order by QueryCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nASimDnsActivityLogs\n| where TimeGenerated > ago(1d)\n| extend QueryLength = strlen(DnsQuery)\n| summarize QueryCount = count(), AvgLength = avg(QueryLength) by SrcIpAddr, DnsQuery, bin(TimeGenerated, 1m)\n| where QueryCount > 200 or AvgLength > 100\n| order by QueryCount desc"
   },
   {
     "id": "Q51",
@@ -609,7 +609,7 @@
     "severity": "high",
     "category": "exfiltration",
     "description": "Detects connections to common cloud storage and file-sharing domains.",
-    "kql": "DeviceNetworkEvents\n| where Timestamp > ago(7d)\n| where RemoteUrl has_any (\"dropbox.com\", \"onedrive.live.com\", \"mega.nz\", \"wetransfer.com\", \"drive.google.com\")\n| where ActionType == \"ConnectionSuccess\"\n| summarize ConnectionCount = count() by DeviceName, RemoteUrl, InitiatingProcessFileName, bin(Timestamp, 1h)\n| order by ConnectionCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nDeviceNetworkEvents\n| where Timestamp > ago(7d)\n| where not(ipv4_is_private(RemoteIP))\n| where RemoteUrl has_any (\"dropbox.com\", \"onedrive.live.com\", \"mega.nz\", \"wetransfer.com\", \"drive.google.com\")\n| where ActionType == \"ConnectionSuccess\"\n| summarize ConnectionCount = count() by DeviceName, RemoteUrl, InitiatingProcessFileName, bin(Timestamp, 1h)\n| order by ConnectionCount desc"
   },
   {
     "id": "Q52",
@@ -621,7 +621,7 @@
     "severity": "high",
     "category": "c2",
     "description": "Detects regular interval beaconing between the same source and destination on firewalls.",
-    "kql": "CommonSecurityLog\n| where TimeGenerated > ago(1d)\n| where DeviceVendor in (\"Palo Alto Networks\", \"Fortinet\")\n| where DestinationPort in (\"80\", \"443\")\n| summarize ConnectionCount = count(), AvgIntervalSec = avg(datetime_diff('second', TimeGenerated, prev(TimeGenerated))) by SourceIP, DestinationIP, bin(TimeGenerated, 1m)\n| where ConnectionCount > 30\n| where AvgIntervalSec between (50 .. 70)\n| order by ConnectionCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nCommonSecurityLog\n| where TimeGenerated > ago(1d)\n| where not(ipv4_is_private(tostring(DestinationIP))) or not(ipv4_is_private(tostring(SourceIP)))\n| where DeviceVendor in (\"Palo Alto Networks\", \"Fortinet\")\n| where DestinationPort in (\"80\", \"443\")\n| summarize ConnectionCount = count(), AvgIntervalSec = avg(datetime_diff('second', TimeGenerated, prev(TimeGenerated))) by SourceIP, DestinationIP, bin(TimeGenerated, 1m)\n| where ConnectionCount > 30\n| where AvgIntervalSec between (50 .. 70)\n| order by ConnectionCount desc"
   },
   {
     "id": "Q53",
@@ -633,7 +633,7 @@
     "severity": "critical",
     "category": "c2",
     "description": "Detects high-frequency DNS queries to the same domain with long subdomains or NX responses.",
-    "kql": "ASimDnsActivityLogs\n| where TimeGenerated > ago(1d)\n| extend SubdomainLen = strlen(DnsQuery)\n| summarize QueryCount = count(), NXCount = countif(EventResult != \"Success\"), MaxSubdomainLen = max(SubdomainLen) by SrcIpAddr, DnsQuery, bin(TimeGenerated, 1h)\n| where QueryCount > 100 or MaxSubdomainLen > 50\n| order by QueryCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nASimDnsActivityLogs\n| where TimeGenerated > ago(1d)\n| extend SubdomainLen = strlen(DnsQuery)\n| summarize QueryCount = count(), NXCount = countif(EventResult != \"Success\"), MaxSubdomainLen = max(SubdomainLen) by SrcIpAddr, DnsQuery, bin(TimeGenerated, 1h)\n| where QueryCount > 100 or MaxSubdomainLen > 50\n| order by QueryCount desc"
   },
   {
     "id": "Q54",
@@ -645,7 +645,7 @@
     "severity": "high",
     "category": "c2",
     "description": "Detects outbound connections on commonly abused non-standard C2 ports.",
-    "kql": "CommonSecurityLog\n| where TimeGenerated > ago(7d)\n| where DestinationPort in (\"4444\", \"1337\", \"8888\", \"9999\", \"31337\")\n| where DeviceAction in (\"allow\", \"allowed\", \"Accept\")\n| summarize ConnectionCount = count() by SourceIP, DestinationIP, DestinationPort, DeviceVendor, bin(TimeGenerated, 1h)\n| order by ConnectionCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nCommonSecurityLog\n| where TimeGenerated > ago(7d)\n| where not(ipv4_is_private(tostring(DestinationIP))) or not(ipv4_is_private(tostring(SourceIP)))\n| where DestinationPort in (\"4444\", \"1337\", \"8888\", \"9999\", \"31337\")\n| where DeviceAction in (\"allow\", \"allowed\", \"Accept\")\n| summarize ConnectionCount = count() by SourceIP, DestinationIP, DestinationPort, DeviceVendor, bin(TimeGenerated, 1h)\n| order by ConnectionCount desc"
   },
   {
     "id": "Q55",
@@ -657,7 +657,7 @@
     "severity": "medium",
     "category": "c2",
     "description": "Detects connections to known DNS-over-HTTPS providers on port 443.",
-    "kql": "DeviceNetworkEvents\n| where Timestamp > ago(7d)\n| where RemotePort == 443\n| where RemoteIP in (\"1.1.1.1\", \"8.8.8.8\", \"9.9.9.9\") or RemoteUrl has_any (\"cloudflare-dns.com\", \"dns.google\")\n| summarize ConnectionCount = count() by DeviceName, RemoteIP, RemoteUrl, InitiatingProcessFileName, bin(Timestamp, 1h)\n| order by ConnectionCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nDeviceNetworkEvents\n| where Timestamp > ago(7d)\n| where not(ipv4_is_private(RemoteIP))\n| where RemotePort == 443\n| where RemoteIP in (\"1.1.1.1\", \"8.8.8.8\", \"9.9.9.9\") or RemoteUrl has_any (\"cloudflare-dns.com\", \"dns.google\")\n| summarize ConnectionCount = count() by DeviceName, RemoteIP, RemoteUrl, InitiatingProcessFileName, bin(Timestamp, 1h)\n| order by ConnectionCount desc"
   },
   {
     "id": "Q56",
@@ -669,7 +669,7 @@
     "severity": "medium",
     "category": "c2",
     "description": "Detects execution or network activity from common remote access tools.",
-    "kql": "DeviceProcessEvents\n| where Timestamp > ago(7d)\n| where FileName in~ (\"anydesk.exe\", \"teamviewer.exe\", \"tv_w32.exe\", \"rustdesk.exe\")\n| summarize EventCount = count() by DeviceName, FileName, ProcessCommandLine, bin(Timestamp, 1h)\n| order by EventCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nDeviceProcessEvents\n| where Timestamp > ago(7d)\n| where InitiatingProcessFileName !in~ ('MsMpEng.exe','SenseIR.exe','csrss.exe','services.exe','svchost.exe','explorer.exe')\n| where FileName in~ (\"anydesk.exe\", \"teamviewer.exe\", \"tv_w32.exe\", \"rustdesk.exe\")\n| summarize EventCount = count() by DeviceName, FileName, ProcessCommandLine, bin(Timestamp, 1h)\n| order by EventCount desc"
   },
   {
     "id": "Q57",
@@ -681,7 +681,7 @@
     "severity": "critical",
     "category": "impact",
     "description": "Detects rapid mass file renames or extension changes on a single host.",
-    "kql": "DeviceFileEvents\n| where Timestamp > ago(1d)\n| where ActionType in (\"FileRenamed\", \"FileModified\")\n| extend NewExt = extract(@\"\\.([^.]+)$\", 1, RenameTarget)\n| summarize ExtChangeCount = count() by DeviceName, NewExt, InitiatingProcessFileName, bin(Timestamp, 5m)\n| where ExtChangeCount > 100\n| order by ExtChangeCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nDeviceFileEvents\n| where Timestamp > ago(1h)\n| where ActionType in ('FileCreated','FileRenamed','FileModified')\n| where FolderPath !startswith 'C:\\\\Windows\\\\'\n| where FolderPath !startswith 'C:\\\\Program Files\\\\'\n| extend FileExtension = tostring(split(FileName,'.')[-1])\n| extend IsSuspiciousExtension = FileExtension in~ (\n    'encrypted','enc','locked','crypto','crypt','locky','zepto','odin','aes',\n    'cerber','ctb','ccc','xxx','ttt','micro','thor','zzz','xyz','abc','ecc',\n    'ezz','exx','vvv','wtt','lcked','rekt','gg','good','ransomware',\n    'wncry','wcry','wncryt','onion','happy','satan','crypted')\n| summarize \n    TotalFileChanges = count(),\n    SuspiciousExtCount = countif(IsSuspiciousExtension),\n    UniqueExtensions = dcount(FileExtension),\n    AffectedFolders = dcount(FolderPath),\n    SampleFiles = make_set(FileName, 5)\n    by DeviceName, InitiatingProcessFileName, bin(Timestamp, 5m)\n| where TotalFileChanges >= 50 or SuspiciousExtCount >= 5\n| extend RansomwareRisk = case(\n    SuspiciousExtCount >= 5, 'CRITICAL - Known ransomware extension detected',\n    TotalFileChanges >= 200, 'HIGH - Mass file modification',\n    'MEDIUM - Unusual file activity')\n| order by TotalFileChanges desc"
   },
   {
     "id": "Q58",
@@ -693,7 +693,7 @@
     "severity": "critical",
     "category": "impact",
     "description": "Detects vssadmin, wmic, or bcdedit commands used to inhibit system recovery.",
-    "kql": "SecurityEvent\n| where TimeGenerated > ago(7d)\n| where EventID == 4688\n| extend CommandLine = tostring(EventData.CommandLine)\n| extend ProcessName = tostring(EventData.ProcessName)\n| where ProcessName in~ (\"vssadmin.exe\", \"wmic.exe\", \"bcdedit.exe\", \"powershell.exe\")\n| where CommandLine has_any (\"delete shadows\", \"shadowcopy delete\", \"recoveryenabled no\", \"ignoreallfailures\")\n| summarize EventCount = count() by Computer, ProcessName, CommandLine, bin(TimeGenerated, 1h)\n| order by EventCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nSecurityEvent\n| where TimeGenerated > ago(7d)\n| where NewProcessName !startswith 'C:\\\\Windows\\\\WinSxS\\\\'\n| where EventID == 4688\n| extend CommandLine = tostring(EventData.CommandLine)\n| extend ProcessName = tostring(EventData.ProcessName)\n| where ProcessName in~ (\"vssadmin.exe\", \"wmic.exe\", \"bcdedit.exe\", \"powershell.exe\")\n| where CommandLine has_any (\"delete shadows\", \"shadowcopy delete\", \"recoveryenabled no\", \"ignoreallfailures\")\n| summarize EventCount = count() by Computer, ProcessName, CommandLine, bin(TimeGenerated, 1h)\n| order by EventCount desc"
   },
   {
     "id": "Q59",
@@ -705,7 +705,7 @@
     "severity": "critical",
     "category": "impact",
     "description": "Detects backup and security services stopped in rapid sequence.",
-    "kql": "SecurityEvent\n| where TimeGenerated > ago(7d)\n| where EventID == 7036\n| extend ServiceName = tostring(EventData.ServiceName)\n| extend State = tostring(EventData.ServiceState)\n| where State has \"stopped\"\n| where ServiceName has_any (\"Veeam\", \"Backup\", \"MSSQL\", \"Defender\", \"Trend\", \"Sophos\")\n| summarize StopCount = count() by Computer, ServiceName, bin(TimeGenerated, 1h)\n| where StopCount >= 2\n| order by StopCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nSecurityEvent\n| where TimeGenerated > ago(7d)\n| where EventID == 7036\n| extend ServiceName = tostring(EventData.ServiceName)\n| extend State = tostring(EventData.ServiceState)\n| where State has \"stopped\"\n| where ServiceName has_any (\"Veeam\", \"Backup\", \"MSSQL\", \"Defender\", \"Trend\", \"Sophos\")\n| summarize StopCount = count() by Computer, ServiceName, bin(TimeGenerated, 1h)\n| where StopCount >= 2\n| order by StopCount desc"
   },
   {
     "id": "Q60",
@@ -717,6 +717,6 @@
     "severity": "critical",
     "category": "impact",
     "description": "Detects more than 200 file deletions within two minutes from the same process.",
-    "kql": "DeviceFileEvents\n| where Timestamp > ago(1d)\n| where ActionType == \"FileDeleted\"\n| summarize DeleteCount = count() by DeviceName, InitiatingProcessFileName, bin(Timestamp, 2m)\n| where DeleteCount > 200\n| order by DeleteCount desc"
+    "kql": "// BASELINE: Adjust thresholds based on your environment\n// LOOKBACK: Change ago() value based on hunt scope\nDeviceFileEvents\n| where Timestamp > ago(1d)\n| where ActionType == \"FileDeleted\"\n| summarize DeleteCount = count() by DeviceName, InitiatingProcessFileName, bin(Timestamp, 2m)\n| where DeleteCount > 200\n| order by DeleteCount desc"
   }
 ]

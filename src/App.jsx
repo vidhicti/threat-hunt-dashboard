@@ -8,6 +8,7 @@ import IocTracker from './components/IocTracker'
 import QueryGenerator from './components/QueryGenerator'
 import GlobalSearch from './components/GlobalSearch'
 import Settings from './components/Settings'
+import Overview from './components/Overview'
 import techniques from './data/techniques.json'
 import queries from './data/queries.json'
 import hypothesesData from './data/hypotheses.json'
@@ -35,6 +36,7 @@ function countNewIocs(iocList) {
 }
 
 const TABS = [
+  { id: 'overview', label: 'Overview' },
   { id: 'heatmap', label: 'MITRE Heatmap' },
   { id: 'kql', label: 'KQL Library' },
   { id: 'hypotheses', label: 'Hypotheses' },
@@ -46,7 +48,7 @@ const TABS = [
 
 function AppContent() {
   const { setLiveIOCs, setIocLoaded } = useContext(ThreatDataContext)
-  const [activeTab, setActiveTab] = useState('heatmap')
+  const [activeTab, setActiveTab] = useState('overview')
   const [iocCount, setIocCount] = useState(localIocs.length)
   const [searchIocs, setSearchIocs] = useState(localIocs)
   const [iocsLoading, setIocsLoading] = useState(true)
@@ -157,6 +159,17 @@ function AppContent() {
     }
 
     switch (activeTab) {
+      case 'overview':
+        return (
+          <Overview
+            setActiveTab={setActiveTab}
+            iocCount={iocCount}
+            iocsLoading={iocsLoading}
+            workflowStats={workflowStats}
+            activeHunts={workflowStats.inProgress}
+            closedThisWeek={closedThisWeek}
+          />
+        )
       case 'heatmap':
         return <MitreHeatmap {...highlightProps} />
       case 'kql':
@@ -168,13 +181,22 @@ function AppContent() {
       case 'live-intel':
         return <LiveThreatIntel onGoToSettings={() => setActiveTab('settings')} />
       case 'iocs':
-        return <IocTracker />
+        return <IocTracker setActiveTab={setActiveTab} />
       case 'generator':
         return <QueryGenerator />
       case 'settings':
         return <Settings theme={theme} setTheme={setTheme} />
       default:
-        return <MitreHeatmap {...highlightProps} />
+        return (
+          <Overview
+            setActiveTab={setActiveTab}
+            iocCount={iocCount}
+            iocsLoading={iocsLoading}
+            workflowStats={workflowStats}
+            activeHunts={workflowStats.inProgress}
+            closedThisWeek={closedThisWeek}
+          />
+        )
     }
   }
 
@@ -204,15 +226,17 @@ function AppContent() {
         </div>
       </header>
 
-      <MetricCards
-        totalTTPs={techniques.length}
-        huntQueries={queries.length}
-        hypotheses={hypothesesData.length}
-        iocsTracked={iocsLoading ? '…' : iocCount}
-        coveragePercent={coveragePercent}
-        activeHunts={workflowStats.inProgress}
-        closedThisWeek={closedThisWeek}
-      />
+      {activeTab !== 'overview' && (
+        <MetricCards
+          totalTTPs={techniques.length}
+          huntQueries={queries.length}
+          hypotheses={hypothesesData.length}
+          iocsTracked={iocsLoading ? '…' : iocCount}
+          coveragePercent={coveragePercent}
+          activeHunts={workflowStats.inProgress}
+          closedThisWeek={closedThisWeek}
+        />
+      )}
 
       <nav className="tab-nav" aria-label="Dashboard sections">
         {TABS.map((tab) => {

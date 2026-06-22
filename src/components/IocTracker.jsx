@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { fetchAllIOCs, generateWatchlistKQL, FEED_COUNT, isFeedEnabled } from '../services/threatIntel'
 import {
   getCachedEnrichment,
@@ -13,6 +13,72 @@ import IocInvestigator from './IocInvestigator'
 import localIOCs from '../data/iocs.json'
 
 const PER_PAGE = 50
+
+const THREAT_ACTOR_IOC_MAP = {
+  emotet: { actor: 'TA542 (Emotet)', category: 'Botnet', severity: 'critical' },
+  qakbot: { actor: 'TA570 (QakBot)', category: 'Banking Trojan', severity: 'critical' },
+  qbot: { actor: 'TA570 (QakBot)', category: 'Banking Trojan', severity: 'critical' },
+  lockbit: { actor: 'LockBit', category: 'Ransomware', severity: 'critical' },
+  blackcat: { actor: 'ALPHV/BlackCat', category: 'Ransomware', severity: 'critical' },
+  alphv: { actor: 'ALPHV/BlackCat', category: 'Ransomware', severity: 'critical' },
+  akira: { actor: 'Akira', category: 'Ransomware', severity: 'critical' },
+  conti: { actor: 'Conti', category: 'Ransomware', severity: 'critical' },
+  ryuk: { actor: 'Wizard Spider', category: 'Cybercrime', severity: 'critical' },
+  'cobalt strike': { actor: 'Multiple APTs', category: 'Nation-State APT', severity: 'critical' },
+  cobaltstrike: { actor: 'Multiple APTs', category: 'Nation-State APT', severity: 'critical' },
+  beacon: { actor: 'Multiple APTs', category: 'Nation-State APT', severity: 'critical' },
+  icedid: { actor: 'TA551', category: 'Banking Trojan', severity: 'high' },
+  trickbot: { actor: 'Wizard Spider', category: 'Cybercrime', severity: 'high' },
+  redline: { actor: 'RedLine Stealer Group', category: 'Infostealer', severity: 'high' },
+  lumma: { actor: 'LummaC2', category: 'Infostealer', severity: 'high' },
+  vidar: { actor: 'Vidar Group', category: 'Infostealer', severity: 'high' },
+  raccoon: { actor: 'Raccoon Stealer', category: 'Infostealer', severity: 'high' },
+  asyncrat: { actor: 'Multiple Threat Actors', category: 'RAT', severity: 'high' },
+  njrat: { actor: 'Multiple Threat Actors', category: 'RAT', severity: 'high' },
+  remcos: { actor: 'Multiple Threat Actors', category: 'RAT', severity: 'high' },
+  lazarus: { actor: 'Lazarus Group (APT38)', category: 'Nation-State APT', severity: 'critical' },
+  apt28: { actor: 'APT28 (Fancy Bear)', category: 'Nation-State APT', severity: 'critical' },
+  apt29: { actor: 'APT29 (Cozy Bear)', category: 'Nation-State APT', severity: 'critical' },
+  mirai: { actor: 'Mirai Botnet', category: 'Botnet', severity: 'medium' },
+  darkside: { actor: 'DarkSide', category: 'Ransomware', severity: 'critical' },
+  revil: { actor: 'REvil/Sodinokibi', category: 'Ransomware', severity: 'critical' },
+  sodinokibi: { actor: 'REvil/Sodinokibi', category: 'Ransomware', severity: 'critical' },
+  formbook: { actor: 'Multiple Threat Actors', category: 'Infostealer', severity: 'medium' },
+  nanocore: { actor: 'Multiple Threat Actors', category: 'RAT', severity: 'medium' },
+  ursnif: { actor: 'TA544', category: 'Banking Trojan', severity: 'high' },
+  gozi: { actor: 'TA544', category: 'Banking Trojan', severity: 'high' },
+  dridex: { actor: 'TA505', category: 'Banking Trojan', severity: 'critical' },
+  phishing: { actor: 'Multiple Threat Actors', category: 'Phishing/BEC', severity: 'medium' },
+}
+
+function correlateToActor(ioc) {
+  const malware = (ioc.malwareFamily || ioc.ttp || '').toLowerCase()
+  const indicator = (ioc.indicator || '').toLowerCase()
+
+  for (const [key, actorInfo] of Object.entries(THREAT_ACTOR_IOC_MAP)) {
+    if (malware.includes(key) || indicator.includes(key)) {
+      return actorInfo
+    }
+  }
+  return null
+}
+
+function actorCategoryColor(category) {
+  if (category === 'Ransomware') return '#f85149'
+  if (category === 'Nation-State APT') return '#a371f7'
+  if (category === 'Banking Trojan') return '#d29922'
+  if (category === 'Infostealer') return '#f778ba'
+  if (category === 'Botnet') return '#39d3bb'
+  if (category === 'RAT') return '#d29922'
+  if (category === 'Phishing/BEC') return '#58a6ff'
+  return '#8b949e'
+}
+
+function severityBadgeStyle(severity) {
+  if (severity === 'critical') return { background: '#3d1a1a', color: '#f85149', border: '1px solid #f8514940' }
+  if (severity === 'high') return { background: '#3d2e0a', color: '#d29922', border: '1px solid #d2992240' }
+  return { background: '#21262d', color: '#8b949e', border: '1px solid #30363d' }
+}
 
 const EXTERNAL_QUICK_LINKS = [
   { label: 'Check in ThreatFox', url: (i) => `https://threatfox.abuse.ch/browse.php?q=${encodeURIComponent(i)}` },
@@ -106,7 +172,7 @@ const countryFlag = (code) =>
     ? String.fromCodePoint(...[...code.toUpperCase()].map((c) => 0x1f1e0 + c.charCodeAt(0) - 65))
     : '—'
 
-export default function IocTracker() {
+export default function IocTracker({ setActiveTab }) {
   const [iocs, setIocs] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -115,6 +181,7 @@ export default function IocTracker() {
   const [search, setSearch] = useState('')
   const [filterType, setFilterType] = useState('All')
   const [filterSource, setFilterSource] = useState('All')
+  const [filterActor, setFilterActor] = useState('All')
   const [filterConfidence, setFilterConfidence] = useState('All')
   const [filterStatus, setFilterStatus] = useState('All')
   const [page, setPage] = useState(1)
@@ -139,6 +206,13 @@ export default function IocTracker() {
 
   useEffect(() => {
     loadIOCs()
+  }, [])
+
+  useEffect(() => {
+    if (sessionStorage.getItem('iocFocusSearch')) {
+      sessionStorage.removeItem('iocFocusSearch')
+      setTimeout(() => document.getElementById('ioc-tracker-search')?.focus(), 100)
+    }
   }, [])
 
   useEffect(() => {
@@ -334,12 +408,26 @@ export default function IocTracker() {
     a.click()
   }
 
+  function viewRelatedHypotheses(actorName) {
+    sessionStorage.setItem(
+      'hypothesisActorSearch',
+      JSON.stringify({ actor: actorName, timestamp: Date.now() })
+    )
+    setActiveTab?.('hypotheses')
+  }
+
+  const iocsWithActors = useMemo(
+    () => iocs.map((ioc) => ({ ...ioc, actorCorrelation: correlateToActor(ioc) })),
+    [iocs]
+  )
+
   const filtered = sortIOCs(
-    iocs.filter((ioc) => {
+    iocsWithActors.filter((ioc) => {
       const term = search.toLowerCase()
       if (term && !JSON.stringify(ioc).toLowerCase().includes(term)) return false
       if (filterType !== 'All' && ioc.type !== filterType) return false
       if (filterSource !== 'All' && ioc.source !== filterSource) return false
+      if (filterActor !== 'All' && ioc.actorCorrelation?.actor !== filterActor) return false
       if (filterConfidence !== 'All' && ioc.confidence !== filterConfidence) return false
       if (filterStatus !== 'All' && ioc.status !== filterStatus) return false
       return true
@@ -351,6 +439,12 @@ export default function IocTracker() {
   const totalPages = Math.ceil(filtered.length / PER_PAGE)
   const paginated = filtered.slice((page-1)*PER_PAGE, page*PER_PAGE)
   const sources = ['All', ...new Set(iocs.map(i => i.source).filter(Boolean))]
+  const actorOptions = [
+    'All',
+    ...new Set(
+      iocsWithActors.map((i) => i.actorCorrelation?.actor).filter(Boolean)
+    ),
+  ]
   const types = ['All', ...new Set(iocs.map(i => i.type).filter(Boolean))]
   const feedsOnline = Object.values(feedStatus).filter(Boolean).length
   const minutesAgo = lastUpdated ? Math.max(0, Math.floor((Date.now() - lastUpdated.getTime()) / 60000)) : null
@@ -362,6 +456,7 @@ export default function IocTracker() {
     hashes: iocs.filter(i => i.type === 'SHA256').length,
     active: iocs.filter(i => i.status === 'active').length,
     today: iocs.filter(i => i.dateAdded === new Date().toISOString().split('T')[0]).length,
+    actors: new Set(iocsWithActors.map((i) => i.actorCorrelation?.actor).filter(Boolean)).size,
   }
 
   function toggleSelect(indicator) {
@@ -379,6 +474,7 @@ export default function IocTracker() {
     setSearch('')
     setFilterType('All')
     setFilterSource('All')
+    setFilterActor('All')
     setFilterConfidence('All')
     setFilterStatus('All')
     setPage(1)
@@ -531,7 +627,7 @@ export default function IocTracker() {
         ))}
       </div>
 
-      <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:8,marginBottom:12}}>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:8,marginBottom:12}}>
         {[
           ['Total', stats.total, '#58a6ff'],
           ['IPs', stats.ips, '#d29922'],
@@ -539,21 +635,27 @@ export default function IocTracker() {
           ['Hashes', stats.hashes, '#a371f7'],
           ['Active', stats.active, '#f85149'],
           ['Today', stats.today, '#39d3bb'],
-        ].map(([label,val,color]) => (
+          ['Actors', stats.actors, '#a371f7'],
+        ].map(([label, val, color]) => (
           <div key={label} style={{background:"#161b22",border:"1px solid #30363d",borderRadius:8,padding:"10px 12px"}}>
             <div style={{fontSize:20,fontWeight:600,color}}>{val}</div>
-            <div style={{fontSize:10,color:"#8b949e",textTransform:"uppercase",letterSpacing:".06em"}}>{label}</div>
+            <div style={{fontSize:10,color:"#8b949e",textTransform:"uppercase",letterSpacing:".06em"}}>
+              {label === 'Actors' ? `Actors (${val})` : label}
+            </div>
           </div>
         ))}
       </div>
 
       <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
-        <input value={search} onChange={e=>{setSearch(e.target.value);setPage(1)}} placeholder="Search indicators, TTPs, sources..." style={{flex:1,minWidth:200,padding:"7px 12px",background:"#0d1117",border:"1px solid #30363d",borderRadius:6,color:"#c9d1d9",fontSize:12,outline:"none"}} />
+        <input id="ioc-tracker-search" value={search} onChange={e=>{setSearch(e.target.value);setPage(1)}} placeholder="Search indicators, TTPs, sources..." style={{flex:1,minWidth:200,padding:"7px 12px",background:"#0d1117",border:"1px solid #30363d",borderRadius:6,color:"#c9d1d9",fontSize:12,outline:"none"}} />
         <select value={filterType} onChange={e=>{setFilterType(e.target.value);setPage(1)}} style={{padding:"7px 10px",background:"#161b22",border:"1px solid #30363d",borderRadius:6,color:"#c9d1d9",fontSize:12}}>
           {types.map(t=><option key={t}>{t}</option>)}
         </select>
         <select value={filterSource} onChange={e=>{setFilterSource(e.target.value);setPage(1)}} style={{padding:"7px 10px",background:"#161b22",border:"1px solid #30363d",borderRadius:6,color:"#c9d1d9",fontSize:12}}>
           {sources.map(s=><option key={s}>{s}</option>)}
+        </select>
+        <select value={filterActor} onChange={e=>{setFilterActor(e.target.value);setPage(1)}} style={{padding:"7px 10px",background:"#161b22",border:"1px solid #30363d",borderRadius:6,color:"#c9d1d9",fontSize:12}}>
+          {actorOptions.map(a=><option key={a}>{a}</option>)}
         </select>
         <select value={filterConfidence} onChange={e=>{setFilterConfidence(e.target.value);setPage(1)}} style={{padding:"7px 10px",background:"#161b22",border:"1px solid #30363d",borderRadius:6,color:"#c9d1d9",fontSize:12}}>
           {['All','High','Medium','Low'].map(c=><option key={c}>{c}</option>)}
@@ -574,6 +676,7 @@ export default function IocTracker() {
               <th style={{padding:"8px",textAlign:"left",color:"#8b949e",fontSize:10,textTransform:"uppercase",letterSpacing:".06em",fontWeight:500}}>Country</th>
               <SortableTh label="TTP" column="ttp" />
               <th style={{padding:"8px",textAlign:"left",color:"#8b949e",fontSize:10,textTransform:"uppercase",letterSpacing:".06em",fontWeight:500}}>Malware</th>
+              <th style={{padding:"8px",textAlign:"left",color:"#8b949e",fontSize:10,textTransform:"uppercase",letterSpacing:".06em",fontWeight:500}}>Threat Actor</th>
               <th style={{padding:"8px",textAlign:"left",color:"#8b949e",fontSize:10,textTransform:"uppercase",letterSpacing:".06em",fontWeight:500}}>Log Source</th>
               <SortableTh label="Confidence" column="confidence" />
               <SortableTh label="Status" column="status" />
@@ -596,6 +699,15 @@ export default function IocTracker() {
                   </td>
                   <td style={{padding:"8px",fontSize:11,color:"#c9d1d9",maxWidth:120,overflow:"hidden",textOverflow:"ellipsis"}}>{ioc.ttpId||ioc.ttp}</td>
                   <td style={{padding:"8px",fontSize:11,color:"#8b949e",maxWidth:120,overflow:"hidden",textOverflow:"ellipsis"}}>{ioc.malwareFamily||'—'}</td>
+                  <td style={{padding:"8px",fontSize:11,maxWidth:140,overflow:"hidden",textOverflow:"ellipsis"}}>
+                    {ioc.actorCorrelation ? (
+                      <span style={{color:actorCategoryColor(ioc.actorCorrelation.category),fontWeight:600}} title={ioc.actorCorrelation.category}>
+                        {ioc.actorCorrelation.actor}
+                      </span>
+                    ) : (
+                      <span style={{color:'#8b949e'}}>—</span>
+                    )}
+                  </td>
                   <td style={{padding:"8px",fontSize:11,color:"#8b949e"}}>{ioc.logSource}</td>
                   <td style={{padding:"8px"}}><span style={{color:confColor(ioc.confidence),fontWeight:600,fontSize:11}}>{ioc.confidence}</span></td>
                   <td style={{padding:"8px"}}><span style={{display:"inline-block",width:6,height:6,borderRadius:"50%",background:statusColor(ioc.status),marginRight:6}}></span><span style={{fontSize:11,color:"#c9d1d9",textTransform:"capitalize"}}>{ioc.status}</span></td>
@@ -611,9 +723,32 @@ export default function IocTracker() {
                 </tr>
                 {expandedRow===i && (
                   <tr key={'exp'+i} style={{background:"#0d1117"}}>
-                    <td colSpan={12} style={{padding:"12px 16px"}}>
+                    <td colSpan={13} style={{padding:"12px 16px"}}>
                       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
                         <div>
+                          {ioc.actorCorrelation && (
+                            <div style={{background:"#161b22",border:"1px solid #30363d",borderRadius:8,padding:"12px",marginBottom:12}}>
+                              <div style={{fontSize:12,fontWeight:600,color:"#f0f6fc",marginBottom:8}}>🎯 Threat Actor Attribution</div>
+                              <div style={{fontSize:16,fontWeight:700,color:actorCategoryColor(ioc.actorCorrelation.category),marginBottom:8}}>
+                                {ioc.actorCorrelation.actor}
+                              </div>
+                              <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap"}}>
+                                <span style={{fontSize:10,padding:"2px 8px",borderRadius:4,fontWeight:600,...{background:'#21262d',color:actorCategoryColor(ioc.actorCorrelation.category),border:`1px solid ${actorCategoryColor(ioc.actorCorrelation.category)}44`}}}>
+                                  {ioc.actorCorrelation.category}
+                                </span>
+                                <span style={{fontSize:10,padding:"2px 8px",borderRadius:4,fontWeight:600,...severityBadgeStyle(ioc.actorCorrelation.severity)}}>
+                                  {ioc.actorCorrelation.severity}
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); viewRelatedHypotheses(ioc.actorCorrelation.actor) }}
+                                style={{padding:"6px 12px",background:"#0d2045",border:"1px solid #58a6ff44",borderRadius:6,color:"#58a6ff",fontSize:11,cursor:"pointer",fontWeight:600}}
+                              >
+                                View related hypotheses
+                              </button>
+                            </div>
+                          )}
                           <div style={{fontSize:11,color:"#8b949e",marginBottom:8,textTransform:"uppercase",letterSpacing:".06em"}}>Full Indicator</div>
                           <div style={{fontFamily:"monospace",fontSize:12,color:"#58a6ff",wordBreak:"break-all",marginBottom:8}}>{ioc.indicator}</div>
                           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,fontSize:11}}>
