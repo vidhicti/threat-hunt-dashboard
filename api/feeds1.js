@@ -96,34 +96,56 @@ export default async function handler(req, res) {
 
   } else if (feed === 'malwarebazaar') {
     try {
-      const r = await fetch('https://mb-api.abuse.ch/api/v1/', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: 'query=get_recent&selector=100',
+      // Try VirusShare hash feed (no auth, public)
+      const r = await fetch('https://virusshare.com/hashfiles/VirusShare_00498.md5', {
         signal: AbortSignal.timeout(6000),
       })
-      if (!r.ok) return res.status(200).json({ success: false, error: `MalwareBazaar HTTP ${r.status}`, iocs: [] })
-      const data = await r.json()
-      if (data.query_status !== 'ok') return res.status(200).json({ success: false, error: data.query_status, iocs: [] })
-      iocs = (data.data || []).slice(0, 100).map((item) => ({
-        indicator: item.sha256_hash,
-        type: 'SHA256',
-        ttp: 'T1204.002 Malicious File Execution',
-        ttpId: 'T1204.002',
-        source: 'MalwareBazaar',
-        logSource: 'MDE',
-        confidence: 'High',
-        status: 'active',
-        dateAdded: item.first_seen?.split(' ')[0] || today(),
-        malwareFamily: item.signature || item.tags?.join(', ') || 'Unknown',
-        threatType: 'Malware Sample',
-        fileName: item.file_name,
-        fileType: item.file_type,
-      }))
+      if (r.ok) {
+        const text = await r.text()
+        iocs = text.split('\n')
+          .filter((l) => l && !l.startsWith('#') && l.match(/^[a-f0-9]{32}$/i))
+          .slice(0, 100)
+          .map((hash) => ({
+            indicator: hash.trim(),
+            type: 'MD5',
+            ttp: 'T1204.002 Malicious File',
+            ttpId: 'T1204.002',
+            source: 'VirusShare',
+            logSource: 'MDE',
+            confidence: 'Medium',
+            status: 'active',
+            dateAdded: today(),
+            malwareFamily: 'VirusShare Sample',
+            threatType: 'Malware Hash',
+          }))
+      }
+      // If VirusShare fails, try OpenPhish for URLs instead
+      if (iocs.length === 0) {
+        const r2 = await fetch('https://openphish.com/feed.txt', {
+          signal: AbortSignal.timeout(6000),
+        })
+        if (r2.ok) {
+          const text = await r2.text()
+          iocs = text.split('\n')
+            .filter((l) => l && l.startsWith('http'))
+            .slice(0, 100)
+            .map((url) => ({
+              indicator: url.trim(),
+              type: 'URL',
+              ttp: 'T1566.002 Phishing Link',
+              ttpId: 'T1566.002',
+              source: 'OpenPhish',
+              logSource: 'ASimDnsActivityLogs',
+              confidence: 'High',
+              status: 'active',
+              dateAdded: today(),
+              malwareFamily: 'Phishing URL',
+              threatType: 'Phishing',
+            }))
+        }
+      }
     } catch (e) {
-      return res.status(200).json({ success: false, error: `MalwareBazaar: ${e.message}`, iocs: [] })
+      return res.status(200).json({ success: false, error: `Hash feed: ${e.message}`, iocs: [] })
     }
 
   } else {
