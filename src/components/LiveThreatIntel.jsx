@@ -4,8 +4,6 @@ const API_BASE = window.location.hostname === 'localhost'
   ? 'http://localhost:3000'
   : 'https://threat-hunt-dashboard.vercel.app'
 
-const CACHE_TTL = 6 * 60 * 60 * 1000
-
 const THREAT_CATEGORIES = [
   'Ransomware',
   'Nation-State APT',
@@ -90,12 +88,13 @@ function formatOrigin(origin) {
   return `${flag} ${origin}`
 }
 
-function formatCacheAge(ts) {
+function formatCacheAge(ts, fresh = false) {
+  if (fresh) return 'Just fetched'
   if (!ts) return 'Not yet fetched'
   const hours = Math.floor((Date.now() - ts) / 3600000)
-  if (hours < 1) return 'Updated less than an hour ago'
-  if (hours === 1) return 'Updated 1 hour ago'
-  return `Updated ${hours} hours ago`
+  if (hours < 1) return 'Cached less than an hour ago — Refresh?'
+  if (hours === 1) return 'Cached 1 hour ago — Refresh?'
+  return `Cached ${hours} hours ago — Refresh?`
 }
 
 function formatGeneratedTime(iso) {
@@ -104,20 +103,6 @@ function formatGeneratedTime(iso) {
     return new Date(iso).toLocaleString()
   } catch {
     return iso
-  }
-}
-
-function loadCache(key, setter, timeSetter) {
-  try {
-    const raw = localStorage.getItem(key)
-    if (!raw) return
-    const { data, time } = JSON.parse(raw)
-    if (Date.now() - time < CACHE_TTL) {
-      setter(data)
-      timeSetter(time)
-    }
-  } catch {
-    /* ignore */
   }
 }
 
@@ -325,6 +310,10 @@ export default function LiveThreatIntel({ onGoToSettings }) {
   const [campaignsCacheTime, setCampaignsCacheTime] = useState(null)
   const [vulnsExploitFilter, setVulnsExploitFilter] = useState('All')
   const [campaignsCategoryFilter, setCampaignsCategoryFilter] = useState('All')
+  const [trendsFresh, setTrendsFresh] = useState(false)
+  const [historicalFresh, setHistoricalFresh] = useState(false)
+  const [vulnsFresh, setVulnsFresh] = useState(false)
+  const [campaignsFresh, setCampaignsFresh] = useState(false)
 
   const filteredTrendingActors = useMemo(
     () => filterByCategory(trendingActors, trendsCategoryFilter),
@@ -347,16 +336,55 @@ export default function LiveThreatIntel({ onGoToSettings }) {
   )
 
   useEffect(() => {
+    const SIX_HOURS = 6 * 60 * 60 * 1000
+    const now = Date.now()
+
     try {
-      const saved = localStorage.getItem('liveHypotheses')
-      if (saved) setGeneratedHypotheses(JSON.parse(saved))
+      const trendsCache = JSON.parse(localStorage.getItem('trendingActorsCache') || '{}')
+      if (trendsCache.data && trendsCache.time && now - trendsCache.time < SIX_HOURS) {
+        setTrendingActors(trendsCache.data)
+        setTrendsCacheTime(trendsCache.time)
+      }
     } catch {
       /* ignore */
     }
-    loadCache('trendingActorsCache', setTrendingActors, setTrendsCacheTime)
-    loadCache('historicalActorsCache', setHistoricalActors, setHistoricalCacheTime)
-    loadCache('vulnsCache', setVulnerabilities, setVulnsCacheTime)
-    loadCache('campaignsCache', setAttackCampaigns, setCampaignsCacheTime)
+
+    try {
+      const histCache = JSON.parse(localStorage.getItem('historicalActorsCache') || '{}')
+      if (histCache.data && histCache.time && now - histCache.time < SIX_HOURS) {
+        setHistoricalActors(histCache.data)
+        setHistoricalCacheTime(histCache.time)
+      }
+    } catch {
+      /* ignore */
+    }
+
+    try {
+      const vulnsCache = JSON.parse(localStorage.getItem('vulnsCache') || '{}')
+      if (vulnsCache.data && vulnsCache.time && now - vulnsCache.time < SIX_HOURS) {
+        setVulnerabilities(vulnsCache.data)
+        setVulnsCacheTime(vulnsCache.time)
+      }
+    } catch {
+      /* ignore */
+    }
+
+    try {
+      const campaignsCache = JSON.parse(localStorage.getItem('campaignsCache') || '{}')
+      if (campaignsCache.data && campaignsCache.time && now - campaignsCache.time < SIX_HOURS) {
+        setAttackCampaigns(campaignsCache.data)
+        setCampaignsCacheTime(campaignsCache.time)
+      }
+    } catch {
+      /* ignore */
+    }
+
+    try {
+      const saved = JSON.parse(localStorage.getItem('liveHypotheses') || '[]')
+      setGeneratedHypotheses(saved)
+    } catch {
+      /* ignore */
+    }
   }, [])
 
   async function fetchTrends() {
@@ -374,6 +402,7 @@ export default function LiveThreatIntel({ onGoToSettings }) {
       setTrendsCategoryFilter('All')
       const now = Date.now()
       setTrendsCacheTime(now)
+      setTrendsFresh(true)
       localStorage.setItem('trendingActorsCache', JSON.stringify({ data: data.data, time: now }))
     } catch (e) {
       setError(e.message)
@@ -397,6 +426,7 @@ export default function LiveThreatIntel({ onGoToSettings }) {
       setHistoricalCategoryFilter('All')
       const now = Date.now()
       setHistoricalCacheTime(now)
+      setHistoricalFresh(true)
       localStorage.setItem('historicalActorsCache', JSON.stringify({ data: data.data, time: now }))
     } catch (e) {
       setError(e.message)
@@ -420,6 +450,7 @@ export default function LiveThreatIntel({ onGoToSettings }) {
       setVulnsExploitFilter('All')
       const now = Date.now()
       setVulnsCacheTime(now)
+      setVulnsFresh(true)
       localStorage.setItem('vulnsCache', JSON.stringify({ data: data.data, time: now }))
     } catch (e) {
       setError(e.message)
@@ -443,6 +474,7 @@ export default function LiveThreatIntel({ onGoToSettings }) {
       setCampaignsCategoryFilter('All')
       const now = Date.now()
       setCampaignsCacheTime(now)
+      setCampaignsFresh(true)
       localStorage.setItem('campaignsCache', JSON.stringify({ data: data.data, time: now }))
     } catch (e) {
       setError(e.message)
@@ -655,7 +687,7 @@ export default function LiveThreatIntel({ onGoToSettings }) {
           <div className="lti-section-header">
             <h3>Current Threat Landscape</h3>
             <div className="lti-header-actions">
-              <span className="lti-cache-age">{formatCacheAge(trendsCacheTime)}</span>
+              <span className="lti-cache-age">{formatCacheAge(trendsCacheTime, trendsFresh)}</span>
               <button
                 type="button"
                 className="hyp-fetch-btn"
@@ -740,7 +772,7 @@ export default function LiveThreatIntel({ onGoToSettings }) {
           <div className="lti-section-header">
             <h3>Threat Actor Reference Database</h3>
             <div className="lti-header-actions">
-              <span className="lti-cache-age">{formatCacheAge(historicalCacheTime)}</span>
+              <span className="lti-cache-age">{formatCacheAge(historicalCacheTime, historicalFresh)}</span>
               <button
                 type="button"
                 className="hyp-fetch-btn"
@@ -826,7 +858,7 @@ export default function LiveThreatIntel({ onGoToSettings }) {
           <div className="lti-section-header">
             <h3>Active Vulnerability Intelligence</h3>
             <div className="lti-header-actions">
-              <span className="lti-cache-age">{formatCacheAge(vulnsCacheTime)}</span>
+              <span className="lti-cache-age">{formatCacheAge(vulnsCacheTime, vulnsFresh)}</span>
               <button
                 type="button"
                 className="hyp-fetch-btn"
@@ -914,7 +946,7 @@ export default function LiveThreatIntel({ onGoToSettings }) {
           <div className="lti-section-header">
             <h3>Recent Attack Campaigns</h3>
             <div className="lti-header-actions">
-              <span className="lti-cache-age">{formatCacheAge(campaignsCacheTime)}</span>
+              <span className="lti-cache-age">{formatCacheAge(campaignsCacheTime, campaignsFresh)}</span>
               <button
                 type="button"
                 className="hyp-fetch-btn"

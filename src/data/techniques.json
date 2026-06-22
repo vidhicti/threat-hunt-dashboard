@@ -60,7 +60,7 @@
     "name": "Windows Management Instrumentation",
     "tactic": "Execution",
     "tacticId": "TA0002",
-    "coverage": "medium"
+    "coverage": "baselining"
   },
   {
     "id": "T1218",
@@ -74,7 +74,7 @@
     "name": "Scheduled Task",
     "tactic": "Persistence",
     "tacticId": "TA0003",
-    "coverage": "high"
+    "coverage": "baselining"
   },
   {
     "id": "T1547.001",
@@ -144,7 +144,7 @@
     "name": "Disable or Modify Tools",
     "tactic": "Defense Evasion",
     "tacticId": "TA0005",
-    "coverage": "critical"
+    "coverage": "baselining"
   },
   {
     "id": "T1070.001",
@@ -200,7 +200,7 @@
     "name": "Kerberoasting",
     "tactic": "Credential Access",
     "tacticId": "TA0006",
-    "coverage": "high"
+    "coverage": "baselining"
   },
   {
     "id": "T1552.001",
@@ -340,7 +340,7 @@
     "name": "Web Protocols",
     "tactic": "Command and Control",
     "tacticId": "TA0011",
-    "coverage": "high"
+    "coverage": "baselining"
   },
   {
     "id": "T1071.004",
@@ -663,5 +663,89 @@
     "tactic": "Impact",
     "tacticId": "TA0040",
     "coverage": "low"
+  },
+  {
+    "id": "T1595.001",
+    "name": "Active Scanning: Scanning IP Blocks",
+    "tactic": "Reconnaissance",
+    "tacticId": "TA0043",
+    "coverage": "baselining"
+  },
+  {
+    "id": "T1583.001",
+    "name": "Acquire Infrastructure: Domains",
+    "tactic": "Resource Development",
+    "tacticId": "TA0042",
+    "coverage": "baselining"
+  },
+  {
+    "id": "T1078.002",
+    "name": "Valid Accounts: Domain Accounts",
+    "tactic": "Initial Access",
+    "tacticId": "TA0001",
+    "coverage": "baselining"
+  },
+  {
+    "id": "T1137.001",
+    "name": "Office Application Startup: Office Templates",
+    "tactic": "Persistence",
+    "tacticId": "TA0003",
+    "coverage": "baselining"
+  },
+  {
+    "id": "T1003.002",
+    "name": "OS Credential Dumping: Security Account Manager",
+    "tactic": "Credential Access",
+    "tacticId": "TA0006",
+    "coverage": "baselining"
+  },
+  {
+    "id": "T1021.003",
+    "name": "Remote Services: Distributed Component Object Model",
+    "tactic": "Lateral Movement",
+    "tacticId": "TA0008",
+    "coverage": "baselining"
+  },
+  {
+    "id": "T1115",
+    "name": "Clipboard Data",
+    "tactic": "Collection",
+    "tacticId": "TA0009",
+    "coverage": "baselining"
+  },
+  {
+    "id": "T1561.002",
+    "name": "Disk Wipe: Disk Structure Wipe",
+    "tactic": "Impact",
+    "tacticId": "TA0040",
+    "coverage": "baselining"
+  },
+  {
+    "id": "T1114.003",
+    "name": "Email Collection: Email Forwarding Rule",
+    "tactic": "Collection",
+    "tacticId": "TA0009",
+    "coverage": "baselining"
+  },
+  {
+    "id": "T1114.002",
+    "name": "Email Collection: Remote Email Collection",
+    "tactic": "Collection",
+    "tacticId": "TA0009",
+    "coverage": "baselining"
+  },
+  {
+    "id": "T1078.004",
+    "name": "Valid Accounts: Cloud Accounts",
+    "tactic": "Initial Access",
+    "tacticId": "TA0001",
+    "coverage": "baselining"
+  },
+  {
+    "id": "T1204",
+    "name": "User Execution",
+    "tactic": "Execution",
+    "tacticId": "TA0002",
+    "coverage": "baselining"
   }
 ]

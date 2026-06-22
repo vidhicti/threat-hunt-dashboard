@@ -76,6 +76,7 @@ export default function Settings({ theme = 'dark', setTheme }) {
   const [drafts, setDrafts] = useState({})
   const [showKeys, setShowKeys] = useState({})
   const [defaultLookback, setDefaultLookback] = useState(localStorage.getItem('defaultLookback') || '1d')
+  const [lookbackSaved, setLookbackSaved] = useState(false)
   const [autoRefresh, setAutoRefresh] = useState(localStorage.getItem('autoRefresh') === 'true')
   const [refreshInterval, setRefreshInterval] = useState(parseInt(localStorage.getItem('refreshInterval') || '300000'))
   const [whitelist, setWhitelist] = useState(JSON.parse(localStorage.getItem('iocWhitelist') || '[]'))
@@ -391,8 +392,12 @@ export default function Settings({ theme = 'dark', setTheme }) {
     localStorage.setItem('analystName', analystName)
   }
 
-  function saveLookback() {
-    localStorage.setItem('defaultLookback', defaultLookback)
+  function saveLookback(value) {
+    const next = value ?? defaultLookback
+    localStorage.setItem('defaultLookback', next)
+    window.dispatchEvent(new Event('defaultLookbackChanged'))
+    setLookbackSaved(true)
+    setTimeout(() => setLookbackSaved(false), 2000)
   }
 
   function saveAutoRefresh() {
@@ -724,16 +729,25 @@ export default function Settings({ theme = 'dark', setTheme }) {
         <h3 style={{ fontSize: 14, fontWeight: 600, color: '#f0f6fc', marginBottom: 12 }}>Hunt Preferences</h3>
 
         <div style={{ marginBottom: 16 }}>
-          <label style={{ display: 'block', fontSize: 12, color: '#8b949e', marginBottom: 6 }}>Default Time Range</label>
+          <label style={{ display: 'block', fontSize: 12, color: '#8b949e', marginBottom: 6 }}>Default Lookback</label>
           <select
             value={defaultLookback}
-            onChange={(e) => { setDefaultLookback(e.target.value); saveLookback() }}
+            onChange={(e) => {
+              setDefaultLookback(e.target.value)
+              saveLookback(e.target.value)
+            }}
             style={{ width: '100%', padding: '8px 12px', background: '#0d1117', border: '1px solid #30363d', borderRadius: 6, color: '#c9d1d9', fontSize: 12, outline: 'none' }}
           >
             {lookbackOptions.map((opt) => (
               <option key={opt.value} value={opt.value}>{opt.label}</option>
             ))}
           </select>
+          {lookbackSaved && (
+            <span style={{ fontSize: 11, color: '#3fb950', marginTop: 6, display: 'block' }}>Saved ✓</span>
+          )}
+          <p style={{ fontSize: 11, color: '#8b949e', marginTop: 6, marginBottom: 0 }}>
+            This sets the default time range in KQL Library
+          </p>
         </div>
 
         <div style={{ marginBottom: 16 }}>

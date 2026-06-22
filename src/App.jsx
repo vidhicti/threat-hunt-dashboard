@@ -77,6 +77,14 @@ function AppContent() {
     localStorage.setItem('theme', theme)
   }, [theme])
 
+  useEffect(() => {
+    const onLookbackChange = () => {
+      setDefaultLookback(localStorage.getItem('defaultLookback') || '1d')
+    }
+    window.addEventListener('defaultLookbackChanged', onLookbackChange)
+    return () => window.removeEventListener('defaultLookbackChanged', onLookbackChange)
+  }, [])
+
   const toggleTheme = useCallback(() => {
     setTheme((t) => (t === 'dark' ? 'light' : 'dark'))
   }, [])

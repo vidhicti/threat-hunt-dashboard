@@ -96,29 +96,34 @@ export default async function handler(req, res) {
 
   } else if (feed === 'malwarebazaar') {
     try {
-      const r = await fetch('https://check.torproject.org/torbulkexitlist', {
+      const r = await fetch('https://mb-api.abuse.ch/api/v1/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: 'query=get_recent&selector=100',
         signal: AbortSignal.timeout(6000),
       })
-      if (!r.ok) return res.status(200).json({ success: false, error: `TorBulkExit HTTP ${r.status}`, iocs: [] })
-      const text = await r.text()
-      iocs = text.split('\n')
-        .filter((l) => l && l.match(/^\d+\.\d+\.\d+\.\d+$/))
-        .slice(0, 150)
-        .map((ip) => ({
-          indicator: ip.trim(),
-          type: 'IP',
-          ttp: 'T1090.003 Multi-hop Proxy (Tor)',
-          ttpId: 'T1090.003',
-          source: 'Tor Exit Nodes',
-          logSource: 'CommonSecurityLog',
-          confidence: 'Medium',
-          status: 'active',
-          dateAdded: today(),
-          malwareFamily: 'Tor Exit Node',
-          threatType: 'Anonymization Proxy',
-        }))
+      if (!r.ok) return res.status(200).json({ success: false, error: `MalwareBazaar HTTP ${r.status}`, iocs: [] })
+      const data = await r.json()
+      if (data.query_status !== 'ok') return res.status(200).json({ success: false, error: data.query_status, iocs: [] })
+      iocs = (data.data || []).slice(0, 100).map((item) => ({
+        indicator: item.sha256_hash,
+        type: 'SHA256',
+        ttp: 'T1204.002 Malicious File Execution',
+        ttpId: 'T1204.002',
+        source: 'MalwareBazaar',
+        logSource: 'MDE',
+        confidence: 'High',
+        status: 'active',
+        dateAdded: item.first_seen?.split(' ')[0] || today(),
+        malwareFamily: item.signature || item.tags?.join(', ') || 'Unknown',
+        threatType: 'Malware Sample',
+        fileName: item.file_name,
+        fileType: item.file_type,
+      }))
     } catch (e) {
-      return res.status(200).json({ success: false, error: `TorBulkExit: ${e.message}`, iocs: [] })
+      return res.status(200).json({ success: false, error: `MalwareBazaar: ${e.message}`, iocs: [] })
     }
 
   } else {

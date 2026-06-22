@@ -94,6 +94,32 @@ export default async function handler(req, res) {
     } catch (e) {
       return res.status(200).json({ success: false, error: `FireHOL: ${e.message}`, iocs: [] })
     }
+  } else if (feed === 'tornodes') {
+    try {
+      const r = await fetch('https://check.torproject.org/torbulkexitlist', {
+        signal: AbortSignal.timeout(6000),
+      })
+      if (!r.ok) return res.status(200).json({ success: false, error: `TorNodes HTTP ${r.status}`, iocs: [] })
+      const text = await r.text()
+      iocs = text.split('\n')
+        .filter((l) => l && l.match(/^\d+\.\d+\.\d+\.\d+$/))
+        .slice(0, 150)
+        .map((ip) => ({
+          indicator: ip.trim(),
+          type: 'IP',
+          ttp: 'T1090.003 Multi-hop Proxy',
+          ttpId: 'T1090.003',
+          source: 'Tor Exit Nodes',
+          logSource: 'CommonSecurityLog',
+          confidence: 'Medium',
+          status: 'active',
+          dateAdded: today(),
+          malwareFamily: 'Tor Exit Node',
+          threatType: 'Anonymization Proxy',
+        }))
+    } catch (e) {
+      return res.status(200).json({ success: false, error: `TorNodes: ${e.message}`, iocs: [] })
+    }
   } else {
     return res.status(400).json({ success: false, error: `Unknown feed: ${feed}`, iocs: [] })
   }

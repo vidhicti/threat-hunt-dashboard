@@ -36,14 +36,14 @@ export const FEED_DEFINITIONS = [
   },
   {
     id: 'malwarebazaar',
-    name: 'Tor Exit Nodes',
-    provider: 'Tor Project',
-    description: 'Tor anonymization network exit points',
-    types: ['IP'],
+    name: 'MalwareBazaar',
+    provider: 'Abuse.ch',
+    description: 'Recent malware hash samples from Abuse.ch MalwareBazaar',
+    types: ['SHA256'],
     requiresKey: false,
     tier: 'free',
-    iocCount: '150+',
-    reliability: 'medium',
+    iocCount: '100+',
+    reliability: 'high',
   },
   {
     id: 'emergingthreats',
@@ -77,6 +77,17 @@ export const FEED_DEFINITIONS = [
     tier: 'free',
     iocCount: '150+',
     reliability: 'high',
+  },
+  {
+    id: 'tornodes',
+    name: 'Tor Exit Nodes',
+    provider: 'Tor Project',
+    description: 'Tor anonymization network exit points',
+    types: ['IP'],
+    requiresKey: false,
+    tier: 'free',
+    iocCount: '150+',
+    reliability: 'medium',
   },
   {
     id: 'alienvault',
@@ -225,7 +236,7 @@ export const FEED_DEFINITIONS = [
 export const FEED_GROUPS = [
   {
     title: 'Free Feeds (No API Key Required)',
-    feedIds: ['threatfox', 'urlhaus', 'feodotracker', 'malwarebazaar', 'emergingthreats', 'cinsarmy', 'sslblacklist', 'certpoland'],
+    feedIds: ['threatfox', 'urlhaus', 'feodotracker', 'malwarebazaar', 'tornodes', 'emergingthreats', 'cinsarmy', 'sslblacklist', 'certpoland'],
   },
   {
     title: 'Free with API Key',
@@ -243,4 +254,5 @@ export const SOURCE_TO_FEED_ID = {
   ...Object.fromEntries(FEED_DEFINITIONS.map((f) => [f.name, f.id])),
   'AlienVault OTX (Auth)': 'alienvault',
   EmergingThreats: 'emergingthreats',
+  MalwareBazaar: 'malwarebazaar',
 }

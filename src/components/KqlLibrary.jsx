@@ -4,6 +4,8 @@ import { validateKQL } from '../services/kqlValidator'
 
 const CATEGORIES = [
   { id: 'all', label: 'All' },
+  { id: 'reconnaissance', label: 'Reconnaissance' },
+  { id: 'resource-development', label: 'Resource Development' },
   { id: 'initial-access', label: 'Initial Access' },
   { id: 'execution', label: 'Execution' },
   { id: 'persistence', label: 'Persistence' },
@@ -128,16 +130,34 @@ function KqlCodeBlock({ kql }) {
   )
 }
 
+function applyTimeRange(kql, range) {
+  return kql.replace(/ago\([^)]+\)/g, `ago(${range})`)
+}
+
 function KqlLibrary({ highlightId, highlightTerm, onHighlightDone, defaultLookback = '1d' }) {
   const [activeCategory, setActiveCategory] = useState('all')
   const [copiedId, setCopiedId] = useState(null)
-  const [timeRange, setTimeRange] = useState(defaultLookback)
+  const [timeRange, setTimeRange] = useState(
+    () => localStorage.getItem('defaultLookback') || defaultLookback || '1d'
+  )
   const [validationResults, setValidationResults] = useState({})
   const [expandedValidation, setExpandedValidation] = useState({})
 
   useEffect(() => {
     setTimeRange(defaultLookback)
   }, [defaultLookback])
+
+  useEffect(() => {
+    const onLookbackChange = () => {
+      setTimeRange(localStorage.getItem('defaultLookback') || '1d')
+    }
+    window.addEventListener('defaultLookbackChanged', onLookbackChange)
+    window.addEventListener('storage', onLookbackChange)
+    return () => {
+      window.removeEventListener('defaultLookbackChanged', onLookbackChange)
+      window.removeEventListener('storage', onLookbackChange)
+    }
+  }, [])
 
   useEffect(() => {
     const results = {}
@@ -147,9 +167,9 @@ function KqlLibrary({ highlightId, highlightTerm, onHighlightDone, defaultLookba
     setValidationResults(results)
   }, [])
 
-  const updateTimeFilter = (kql) => {
-    return kql.replace(/ago\([^)]+\)/g, `ago(${timeRange})`)
-  }
+  const updateTimeFilter = (kql) => applyTimeRange(kql, timeRange)
+
+  const activeRangeLabel = TIME_RANGES.find((tr) => tr.value === timeRange)?.label || timeRange
 
   const filtered = useMemo(() => {
     if (activeCategory === 'all') return queries
@@ -205,6 +225,23 @@ function KqlLibrary({ highlightId, highlightTerm, onHighlightDone, defaultLookba
     <div className="kql-library">
       <div className="library-toolbar">
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
+            Showing queries for last:{' '}
+            <span
+              style={{
+                display: 'inline-block',
+                padding: '2px 10px',
+                background: 'var(--accent-blue)',
+                borderRadius: 20,
+                color: 'var(--bg-primary)',
+                fontSize: 11,
+                fontWeight: 600,
+                marginLeft: 4,
+              }}
+            >
+              {activeRangeLabel}
+            </span>
+          </span>
           <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>Time Range:</span>
           {TIME_RANGES.map((tr) => (
             <button
