@@ -258,6 +258,7 @@ export default function IocTracker({ setActiveTab }) {
       setIocs(withCache)
       setFeedStatus(result?.feedStatus || {})
       setLastUpdated(new Date())
+      localStorage.setItem('iocLastRefresh', new Date().toISOString())
       window.dispatchEvent(new CustomEvent('iocCountUpdate', { detail: { count: withCache.length } }))
     } catch (err) {
       console.error('IOC fetch error:', err)
@@ -266,6 +267,7 @@ export default function IocTracker({ setActiveTab }) {
       )
       setIocs(filtered)
       setError('Live feeds unavailable - showing cached data')
+      localStorage.setItem('iocLastRefresh', new Date().toISOString())
       window.dispatchEvent(new CustomEvent('iocCountUpdate', { detail: { count: filtered.length } }))
     } finally {
       setLoading(false)

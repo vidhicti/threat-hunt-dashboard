@@ -5,8 +5,59 @@ import queries from '../data/queries.json'
 import hypothesesData from '../data/hypotheses.json'
 import { FEED_DEFINITIONS } from '../data/feedConfig'
 import { getCoveragePercent } from '../utils/techniqueCoverage'
-import { getWorkflowStats } from '../services/huntWorkflow'
+import { getWorkflowStats, getWorkflowState } from '../services/huntWorkflow'
 import { getActiveSession, formatDuration } from '../services/huntSession'
+
+const KQL_LIBRARY_DATE = '2026-06-22'
+
+function getFreshnessColor(timestamp) {
+  if (!timestamp) return '#f85149'
+  const ageHours = (Date.now() - new Date(timestamp).getTime()) / 3600000
+  if (ageHours < 1) return '#3fb950'
+  if (ageHours < 6) return '#d29922'
+  return '#f85149'
+}
+
+function getRelativeTime(timestamp) {
+  if (!timestamp) return 'Never'
+  const mins = Math.floor((Date.now() - new Date(timestamp).getTime()) / 60000)
+  if (mins < 1) return 'Just now'
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  return `${Math.floor(hrs / 24)}d ago`
+}
+
+function parseCacheTimestamp(key) {
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    if (parsed.time) return new Date(parsed.time).toISOString()
+    return null
+  } catch {
+    return null
+  }
+}
+
+function getLatestThreatIntelTime() {
+  const times = [
+    parseCacheTimestamp('trendingActorsCache'),
+    parseCacheTimestamp('historicalActorsCache'),
+    parseCacheTimestamp('vulnsCache'),
+  ].filter(Boolean)
+  if (times.length === 0) return null
+  return times.sort().reverse()[0]
+}
+
+function getLatestWorkflowActivity() {
+  const state = getWorkflowState()
+  const timestamps = Object.values(state)
+    .map((entry) => entry.updatedAt)
+    .filter(Boolean)
+  if (timestamps.length === 0) return null
+  return timestamps.sort().reverse()[0]
+}
 
 function loadConnectorConfig() {
   try {
@@ -44,6 +95,7 @@ function Overview({
   const [connectorConfig, setConnectorConfig] = useState(loadConnectorConfig)
   const [liveHypotheses, setLiveHypotheses] = useState(loadLiveHypotheses)
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark')
+  const [freshnessTick, setFreshnessTick] = useState(0)
 
   const analystName = localStorage.getItem('analystName') || ''
   const coveragePercent = useMemo(() => getCoveragePercent(), [])
@@ -75,9 +127,11 @@ function Overview({
     }
     window.addEventListener('storage', refresh)
     const interval = setInterval(refresh, 5000)
+    const freshnessInterval = setInterval(() => setFreshnessTick((t) => t + 1), 60000)
     return () => {
       window.removeEventListener('storage', refresh)
       clearInterval(interval)
+      clearInterval(freshnessInterval)
     }
   }, [])
 
@@ -94,6 +148,36 @@ function Overview({
   const sessionDuration = activeSession
     ? formatDuration(Date.now() - new Date(activeSession.startTime).getTime())
     : null
+
+  const freshnessItems = useMemo(() => {
+    void freshnessTick
+    const iocRefresh = localStorage.getItem('iocLastRefresh')
+    const threatIntelTime = getLatestThreatIntelTime()
+    const workflowTime = getLatestWorkflowActivity()
+    return [
+      {
+        label: 'IOC Feeds',
+        time: iocRefresh,
+        detail: getRelativeTime(iocRefresh),
+      },
+      {
+        label: 'Threat Intel (Groq)',
+        time: threatIntelTime,
+        detail: getRelativeTime(threatIntelTime),
+      },
+      {
+        label: 'Hunt Workflow',
+        time: workflowTime,
+        detail: getRelativeTime(workflowTime),
+      },
+      {
+        label: 'KQL Library',
+        time: KQL_LIBRARY_DATE,
+        detail: `Static — last updated ${KQL_LIBRARY_DATE}`,
+        static: true,
+      },
+    ]
+  }, [freshnessTick])
 
   const cardStyle = {
     background: theme === 'light' ? '#ffffff' : '#161b22',
@@ -300,6 +384,40 @@ function Overview({
           <button type="button" style={actionBtn} onClick={() => setActiveTab('settings')}>
             ⚙️ Configure Feeds
           </button>
+        </div>
+      </section>
+
+      <section style={{ ...cardStyle, marginBottom: 16 }}>
+        <h3 style={{ margin: '0 0 12px', fontSize: 15 }}>Data Freshness</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10 }}>
+          {freshnessItems.map((item) => (
+            <div
+              key={item.label}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                padding: '8px 10px',
+                background: theme === 'light' ? '#f6f8fa' : '#0d1117',
+                borderRadius: 6,
+                border: `1px solid ${theme === 'light' ? '#d0d7de' : '#21262d'}`,
+              }}
+            >
+              <span
+                style={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: '50%',
+                  background: item.static ? '#58a6ff' : getFreshnessColor(item.time),
+                  flexShrink: 0,
+                }}
+              />
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#c9d1d9' }}>{item.label}</div>
+                <div style={{ fontSize: 11, color: '#8b949e' }}>{item.detail}</div>
+              </div>
+            </div>
+          ))}
         </div>
       </section>
 

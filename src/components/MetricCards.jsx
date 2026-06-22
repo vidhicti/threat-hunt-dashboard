@@ -12,7 +12,14 @@ function MetricCards({
     { label: 'Hunt Queries', value: huntQueries, icon: '🔍' },
     { label: 'Hypotheses', value: hypotheses, icon: '💡' },
     { label: 'IOCs Tracked', value: iocsTracked, icon: '⚠️' },
-    { label: 'Coverage %', value: `${coveragePercent}%`, icon: '📊' },
+    {
+      label: 'Coverage %',
+      value: `${coveragePercent}%`,
+      icon: '📊',
+      sub: 'Query library coverage',
+      title:
+        'Percentage of MITRE techniques covered by at least 1 KQL query in the library',
+    },
     {
       label: 'Active Hunts',
       value: activeHunts,
@@ -28,6 +35,7 @@ function MetricCards({
         <div
           key={card.label}
           className={`metric-card${card.accent === 'blue' ? ' metric-card-blue' : card.accent === 'muted' ? ' metric-card-muted' : ''}`}
+          title={card.title}
         >
           <span className="metric-icon" aria-hidden="true">
             {card.icon}

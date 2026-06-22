@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useState, useMemo, useEffect, useCallback, useContext } from 'react'
 import MetricCards from './components/MetricCards'
 import MitreHeatmap from './components/MitreHeatmap'
 import KqlLibrary from './components/KqlLibrary'
@@ -20,7 +20,9 @@ import {
   getClosedThisWeek,
   countActiveHypotheses,
 } from './services/huntWorkflow'
-import { useContext } from 'react'
+import { initKeyboardShortcuts } from './services/keyboardShortcuts'
+import NotificationCenter from './components/NotificationCenter'
+import KeyboardShortcutsHelp from './components/KeyboardShortcutsHelp'
 import { ThreatDataProvider, ThreatDataContext } from './context/ThreatDataContext'
 import './App.css'
 
@@ -61,8 +63,14 @@ function AppContent() {
   const [autoRefresh, setAutoRefresh] = useState(localStorage.getItem('autoRefresh') === 'true')
   const [refreshInterval, setRefreshInterval] = useState(parseInt(localStorage.getItem('refreshInterval') || '300000'))
   const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark')
+  const [showShortcutsHelp, setShowShortcutsHelp] = useState(false)
 
   const coveragePercent = useMemo(() => getCoveragePercent(), [])
+
+  useEffect(() => {
+    const cleanup = initKeyboardShortcuts(setActiveTab)
+    return cleanup
+  }, [])
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
@@ -103,6 +111,7 @@ function AppContent() {
           setSearchIocs(merged)
           setLiveIOCs(merged)
           setIocLoaded(true)
+          localStorage.setItem('iocLastRefresh', new Date().toISOString())
         }
       } catch {
         if (!cancelled) {
@@ -111,6 +120,7 @@ function AppContent() {
           setSearchIocs(merged)
           setLiveIOCs(merged)
           setIocLoaded(true)
+          localStorage.setItem('iocLastRefresh', new Date().toISOString())
         }
       } finally {
         if (!cancelled) setIocsLoading(false)
@@ -214,6 +224,29 @@ function AppContent() {
         </div>
         <div className="header-actions">
           <GlobalSearch iocs={searchIocs} onResultSelect={handleSearchResult} />
+          <NotificationCenter setActiveTab={setActiveTab} />
+          <button
+            type="button"
+            className="shortcuts-help-btn"
+            onClick={() => setShowShortcutsHelp(true)}
+            title="Keyboard shortcuts"
+            aria-label="Keyboard shortcuts"
+            style={{
+              width: 20,
+              height: 20,
+              padding: 0,
+              background: 'none',
+              border: 'none',
+              color: 'var(--text-tertiary)',
+              fontSize: 14,
+              fontWeight: 600,
+              cursor: 'pointer',
+              lineHeight: 1,
+              opacity: 0.7,
+            }}
+          >
+            ?
+          </button>
           <button
             type="button"
             className="theme-toggle-btn"
@@ -268,12 +301,50 @@ function AppContent() {
 
       <main className="tab-content">{renderTab()}</main>
 
-      <footer className="app-footer">
-        <span>Sentinel Threat Hunt Dashboard</span>
-        <span className="footer-meta">
-          {techniques.length} techniques · {queries.length} queries ·{' '}
-          {hypothesesData.length} hypotheses · {iocCount} IOCs
-        </span>
+      <KeyboardShortcutsHelp open={showShortcutsHelp} onClose={() => setShowShortcutsHelp(false)} />
+
+      <footer
+        style={{
+          borderTop: '1px solid var(--border-primary)',
+          padding: '12px 0',
+          marginTop: '2rem',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: 8,
+        }}
+      >
+        <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
+          🛡️ Threat Hunting Dashboard v1.2.0 — Microsoft Sentinel
+        </div>
+        <div style={{ display: 'flex', gap: 16, fontSize: 11, color: 'var(--text-tertiary)' }}>
+          <a
+            href="https://github.com/vidhicti/threat-hunt-dashboard"
+            target="_blank"
+            rel="noreferrer"
+            style={{ color: 'var(--accent-blue)', textDecoration: 'none' }}
+          >
+            GitHub
+          </a>
+          <a
+            href="https://attack.mitre.org"
+            target="_blank"
+            rel="noreferrer"
+            style={{ color: 'var(--accent-blue)', textDecoration: 'none' }}
+          >
+            MITRE ATT&CK
+          </a>
+          <a
+            href="https://threat-hunt-dashboard.vercel.app/api/index"
+            target="_blank"
+            rel="noreferrer"
+            style={{ color: 'var(--accent-blue)', textDecoration: 'none' }}
+          >
+            API Status
+          </a>
+          <span>Built with React + Vercel</span>
+        </div>
       </footer>
     </div>
   )

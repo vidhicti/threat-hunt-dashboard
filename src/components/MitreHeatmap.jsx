@@ -5,6 +5,7 @@ import { ThreatDataContext } from '../context/ThreatDataContext'
 import {
   getTechniquesWithCoverage,
   countQueriesForTechnique,
+  getCoveragePercent,
 } from '../utils/techniqueCoverage'
 
 const COVERAGE_COLORS = {
@@ -73,6 +74,7 @@ function MitreHeatmap({ highlightId, onHighlightDone }) {
   const [copiedQueryId, setCopiedQueryId] = useState(null)
 
   const techniques = useMemo(() => getTechniquesWithCoverage(), [])
+  const coveragePercent = useMemo(() => getCoveragePercent(), [])
 
   const grouped = TACTIC_ORDER.map((tactic) => ({
     tactic,
@@ -139,6 +141,22 @@ function MitreHeatmap({ highlightId, onHighlightDone }) {
   return (
     <div className={`mitre-heatmap heatmap-wrap ${selectedTech ? 'drawer-open' : ''}`}>
       <div className="heatmap-main">
+        <div className="heatmap-header-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 12 }}>
+          <div className="heatmap-coverage-label" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)' }}>
+              {coveragePercent}% query coverage
+            </span>
+            <span
+              className="coverage-info-icon"
+              title="Coverage % = percentage of mapped techniques that have at least 1 detection query. This does not guarantee active detection - depends on log ingestion and field availability in your Sentinel workspace."
+              style={{ cursor: 'help', fontSize: 14, color: 'var(--text-tertiary)' }}
+              aria-label="Coverage definition"
+            >
+              ℹ️
+            </span>
+            <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>Techniques with ≥1 query</span>
+          </div>
+        </div>
         <div className="heatmap-legend">
           {Object.entries(COVERAGE_COLORS).map(([level, color]) => (
             <span key={level} className="legend-item">
@@ -146,6 +164,12 @@ function MitreHeatmap({ highlightId, onHighlightDone }) {
               {level}
             </span>
           ))}
+          <span
+            className="heatmap-legend-info"
+            style={{ fontSize: 11, color: 'var(--text-tertiary)', marginLeft: 8 }}
+          >
+            ℹ️ Coverage based on query library, not actual log ingestion
+          </span>
         </div>
         <p className="heatmap-scroll-hint" aria-hidden="true">
           ← Scroll tactics horizontally on mobile →
