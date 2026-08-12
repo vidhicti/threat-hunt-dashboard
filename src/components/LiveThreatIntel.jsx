@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo } from 'react'
 
-const API_BASE = ''
+const API_BASE = import.meta.env.DEV
+  ? ''
+  : 'https://threat-hunt-dashboard.vercel.app'
 
 const THREAT_CATEGORIES = [
   'Ransomware',

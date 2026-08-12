@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 
-const API_BASE = ''
+const API_BASE = import.meta.env.DEV
+  ? ''
+  : 'https://threat-hunt-dashboard.vercel.app'
 
 async function postLookup(type, indicator) {
   const r = await fetch(`${API_BASE}/api/lookup`, {

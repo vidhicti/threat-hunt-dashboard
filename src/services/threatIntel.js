@@ -1,6 +1,8 @@
 import { FEED_DEFINITIONS } from '../data/feedConfig'
 
-const API_BASE = ''
+const API_BASE = import.meta.env.DEV
+  ? ''
+  : 'https://threat-hunt-dashboard.vercel.app'
 
 export const FEED_LABELS = Object.fromEntries(
   FEED_DEFINITIONS

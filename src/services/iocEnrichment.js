@@ -1,7 +1,9 @@
 const CACHE_KEY = 'iocEnrichmentCache'
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
-const API_BASE = ''
+const API_BASE = import.meta.env.DEV
+  ? ''
+  : 'https://threat-hunt-dashboard.vercel.app'
 
 function loadCache() {
   try {
