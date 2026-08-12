@@ -1,8 +1,6 @@
 import { FEED_DEFINITIONS } from '../data/feedConfig'
 
-const API_BASE = window.location.hostname === 'localhost'
-  ? 'http://localhost:3000'
-  : 'https://threat-hunt-dashboard.vercel.app'
+const API_BASE = ''
 
 export const FEED_LABELS = Object.fromEntries(
   FEED_DEFINITIONS

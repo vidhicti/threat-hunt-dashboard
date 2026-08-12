@@ -2,9 +2,7 @@ import { useState } from 'react'
 import { FEED_DEFINITIONS, FEED_GROUPS, FEED_BY_ID } from '../data/feedConfig'
 import { FEED_COUNT } from '../services/threatIntel'
 
-const API_BASE = window.location.hostname === 'localhost'
-  ? 'http://localhost:3000'
-  : 'https://threat-hunt-dashboard.vercel.app'
+const API_BASE = ''
 
 async function postToApi(path, body) {
   const res = await fetch(`${API_BASE}/api/${path}`, {

@@ -1,9 +1,7 @@
 const CACHE_KEY = 'iocEnrichmentCache'
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
-const API_BASE = window.location.hostname === 'localhost'
-  ? 'http://localhost:3000'
-  : 'https://threat-hunt-dashboard.vercel.app'
+const API_BASE = ''
 
 function loadCache() {
   try {

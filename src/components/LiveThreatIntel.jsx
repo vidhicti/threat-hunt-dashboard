@@ -1,8 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 
-const API_BASE = window.location.hostname === 'localhost'
-  ? 'http://localhost:3000'
-  : 'https://threat-hunt-dashboard.vercel.app'
+const API_BASE = ''
 
 const THREAT_CATEGORIES = [
   'Ransomware',

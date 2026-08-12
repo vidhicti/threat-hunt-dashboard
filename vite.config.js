@@ -6,6 +6,10 @@ export default defineConfig({
   base: '/threat-hunt-dashboard/',
   server: {
     proxy: {
+      '/api': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+      },
       '/proxy/threatfox': {
         target: 'https://threatfox-api.abuse.ch',
         changeOrigin: true,
